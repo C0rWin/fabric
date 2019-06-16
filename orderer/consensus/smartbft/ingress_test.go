@@ -9,7 +9,7 @@ package smartbft_test
 import (
 	"testing"
 
-	"github.com/SmartBFT-Go/consensus/protos"
+	protos "github.com/SmartBFT-Go/consensus/smartbftprotos"
 	"github.com/gogo/protobuf/proto"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/orderer/consensus/smartbft"
@@ -59,7 +59,7 @@ func TestDispatchConsensus(t *testing.T) {
 			Channel: "mychannel",
 			Payload: []byte{1, 2, 3},
 		})
-		assert.EqualError(t, err, "malformed message: proto: protos.Message: illegal tag 0 (wire type 1)")
+		assert.EqualError(t, err, "malformed message: proto: smartbftprotos.Message: illegal tag 0 (wire type 1)")
 	})
 
 	t.Run("Channel does not exist", func(t *testing.T) {

@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package smartbft
 
 import (
-	"github.com/SmartBFT-Go/consensus/protos"
+	protos "github.com/SmartBFT-Go/consensus/smartbftprotos"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/protos/orderer"
 	"github.com/hyperledger/fabric/protoutil"
