@@ -68,9 +68,13 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:252176506de3605a217aa5024c698abc440115d5956295253d280f7fc89dc4c5"
+  digest = "1:18aa5dd1b017564491d507647f7935f1494313a3a5df6275491bc51faa910feb"
   name = "github.com/SmartBFT-Go/consensus"
-  packages = ["smartbftprotos"]
+  packages = [
+    "pkg/api",
+    "pkg/types",
+    "smartbftprotos",
+  ]
   pruneopts = "NUT"
   revision = "de53ceefc26cb35ff0221f3ff546e9006328f171"
 
@@ -967,6 +971,7 @@
     "github.com/Knetic/govaluate",
     "github.com/Shopify/sarama",
     "github.com/Shopify/sarama/mocks",
+    "github.com/SmartBFT-Go/consensus/pkg/api",
     "github.com/SmartBFT-Go/consensus/smartbftprotos",
     "github.com/davecgh/go-spew/spew",
     "github.com/fsouza/go-dockerclient",
