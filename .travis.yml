@@ -3,4 +3,4 @@ language: go
 go:
 - 1.11.x
 
-script: go test -race ./orderer/consensus/smartbft/...
+script: bash ./scripts/build_checks.sh
