@@ -25,6 +25,7 @@ type Signature struct {
 func Unmarshal(bytes []byte) Signature {
 	var sig Signature
 	asn1.Unmarshal(bytes, &sig)
+	return sig
 }
 
 func (sig Signature) Marshal() []byte {
