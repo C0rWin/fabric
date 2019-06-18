@@ -3,4 +3,6 @@ language: go
 go:
 - 1.11.x
 
+go_import_path: github.com/hyperledger/fabric
+
 script: bash ./scripts/build_checks.sh
