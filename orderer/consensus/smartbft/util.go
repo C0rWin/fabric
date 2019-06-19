@@ -1,7 +1,14 @@
+/*
+Copyright IBM Corp. All Rights Reserved.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
 package smartbft
 
 import (
 	"encoding/pem"
+
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/orderer/common/localconfig"
@@ -60,7 +67,6 @@ func newBlockPuller(
 
 	return bp, nil
 }
-
 
 // endpointConfigFromFromSupport extracts TLS CA certificates and endpoints from the ConsenterSupport
 func endpointConfigFromFromSupport(support consensus.ConsenterSupport) ([]cluster.EndpointCriteria, error) {
