@@ -9,27 +9,29 @@ package smartbft
 import (
 	"encoding/asn1"
 
+	"github.com/SmartBFT-Go/consensus/pkg/types"
+	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protoutil"
+	"github.com/pkg/errors"
 )
 
 type Signature struct {
-	LastConfigSeq     int64
-	ConsenterMetadata []byte
-	SignatureHeader   *common.SignatureHeader
-	BlockHeader       *common.BlockHeader
+	ConsenterMetadata    []byte
+	SignatureHeader      *common.SignatureHeader
+	BlockHeader          *common.BlockHeader
+	OrdererBlockMetadata []byte
 }
 
-func Unmarshal(bytes []byte) Signature {
-	var sig Signature
-	asn1.Unmarshal(bytes, &sig)
+func (sig *Signature) Unmarshal(bytes []byte) *Signature {
+	asn1.Unmarshal(bytes, sig)
 	return sig
 }
 
-func (sig Signature) Marshal() []byte {
-	bytes, err := asn1.Marshal(sig)
+func (sig *Signature) Marshal() []byte {
+	bytes, err := asn1.Marshal(*sig)
 	if err != nil {
 		panic(err)
 	}
@@ -37,15 +39,22 @@ func (sig Signature) Marshal() []byte {
 }
 
 func (sig Signature) AsBytes(signer identity.Signer) []byte {
-	blockSignature := &common.MetadataSignature{
-		SignatureHeader: protoutil.MarshalOrPanic(sig.SignatureHeader),
-	}
-
-	blockSignatureValue := protoutil.MarshalOrPanic(&common.OrdererBlockMetadata{
-		LastConfig:        &common.LastConfig{Index: uint64(sig.LastConfigSeq)},
-		ConsenterMetadata: sig.ConsenterMetadata,
-	})
-
-	msg2Sign := util.ConcatenateBytes(blockSignatureValue, blockSignature.SignatureHeader, protoutil.BlockHeaderBytes(sig.BlockHeader))
+	sigHdr := protoutil.MarshalOrPanic(sig.SignatureHeader)
+	msg2Sign := util.ConcatenateBytes(sig.OrdererBlockMetadata, sigHdr, protoutil.BlockHeaderBytes(sig.BlockHeader))
 	return msg2Sign
+}
+
+func proposalToBlock(proposal types.Proposal) (*common.Block, error) {
+	block := &common.Block{}
+	// TODO: check errors...
+	if err := proto.Unmarshal(proposal.Header, block.Header); err != nil {
+		return nil, errors.Wrap(err, "bad header")
+	}
+	if err := proto.Unmarshal(proposal.Payload, block.Data); err != nil {
+		return nil, errors.Wrap(err, "bad payload")
+	}
+	if err := proto.Unmarshal(proposal.Metadata, block.Metadata); err != nil {
+		return nil, errors.Wrap(err, "bad metadata")
+	}
+	return block, nil
 }

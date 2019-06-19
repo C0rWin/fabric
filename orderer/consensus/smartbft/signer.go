@@ -8,7 +8,6 @@ package smartbft
 
 import (
 	"github.com/SmartBFT-Go/consensus/pkg/types"
-	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protoutil"
@@ -29,17 +28,17 @@ func (s *Signer) Sign(msg []byte) []byte {
 }
 
 func (s *Signer) SignProposal(proposal types.Proposal) *types.Signature {
-	block := &common.Block{}
-	// TODO: check errors...
-	proto.Unmarshal(proposal.Header, block.Header)
-	proto.Unmarshal(proposal.Payload, block.Data)
-	proto.Unmarshal(proposal.Metadata, block.Metadata)
-
+	block, err := proposalToBlock(proposal)
+	if err != nil {
+		s.Logger.Panicf("Tried to sign bad proposal: %v", err)
+	}
 	sig := Signature{
-		BlockHeader:       block.Header,
-		SignatureHeader:   protoutil.NewSignatureHeaderOrPanic(s.SignerSerializer),
-		ConsenterMetadata: block.Metadata.Metadata[common.BlockMetadataIndex_ORDERER],
-		LastConfigSeq:     proposal.VerificationSequence,
+		BlockHeader:     block.Header,
+		SignatureHeader: protoutil.NewSignatureHeaderOrPanic(s.SignerSerializer),
+		OrdererBlockMetadata: protoutil.MarshalOrPanic(&common.OrdererBlockMetadata{
+			LastConfig:        &common.LastConfig{Index: uint64(proposal.VerificationSequence)},
+			ConsenterMetadata: block.Metadata.Metadata[common.BlockMetadataIndex_ORDERER],
+		}),
 	}
 
 	signature := protoutil.SignOrPanic(s.SignerSerializer, sig.AsBytes(s.SignerSerializer))
