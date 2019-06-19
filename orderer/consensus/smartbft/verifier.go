@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 
 	"github.com/SmartBFT-Go/consensus/pkg/types"
+	"github.com/SmartBFT-Go/consensus/smartbftprotos"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/protos/common"
@@ -53,7 +54,7 @@ func (v *Verifier) VerifyProposal(proposal types.Proposal, prevHeader []byte) er
 		return err
 	}
 
-	if err := verifyBlockDataAndMetadata(block, v.VerifyRequest, v.VerificationSequence()); err != nil {
+	if err := verifyBlockDataAndMetadata(block, v.VerifyRequest, v.VerificationSequence(), proposal.Metadata); err != nil {
 		return err
 	}
 
@@ -134,7 +135,7 @@ func verifyBlockHeader(block *common.Block, prevHeader []byte, logger PanicLogge
 	return nil
 }
 
-func verifyBlockDataAndMetadata(block *common.Block, verifyReq func(req []byte) error, verificationSeq uint64) error {
+func verifyBlockDataAndMetadata(block *common.Block, verifyReq func(req []byte) error, verificationSeq uint64, metadata []byte) error {
 	if block.Data == nil || len(block.Data.Data) == 0 {
 		return errors.New("empty block data")
 	}
@@ -156,6 +157,20 @@ func verifyBlockDataAndMetadata(block *common.Block, verifyReq func(req []byte) 
 
 	if verificationSeq != lastConfig {
 		return errors.Errorf("last config in proposal is %d, expecting %d", lastConfig, verificationSeq)
+	}
+
+	metadataInBlock := &smartbftprotos.BlockMetadata{}
+	if err := proto.Unmarshal(block.Metadata.Metadata[common.BlockMetadataIndex_ORDERER], metadataInBlock); err != nil {
+		return errors.Wrap(err, "failed unmarshaling smartbft metadata from block")
+	}
+
+	metadataFromProposal := &smartbftprotos.BlockMetadata{}
+	if err := proto.Unmarshal(metadata, metadataInBlock); err != nil {
+		return errors.Wrap(err, "failed unmarshaling smartbft metadata from proposal")
+	}
+
+	if !proto.Equal(metadataInBlock, metadataFromProposal) {
+		return errors.Errorf("expected metadata in block to be %v but got %v", metadataFromProposal, metadataInBlock)
 	}
 
 	return nil

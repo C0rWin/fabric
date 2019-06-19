@@ -7,6 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 package smartbft
 
 import (
+	"encoding/asn1"
+
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
@@ -46,12 +48,17 @@ func (a *Assembler) AssembleProposal(metadata []byte, requests [][]byte) (nextPr
 	block.Metadata.Metadata[common.BlockMetadataIndex_LAST_CONFIG] = protoutil.MarshalOrPanic(&common.Metadata{
 		Value: protoutil.MarshalOrPanic(&common.LastConfig{Index: lastConfigBlock.Header.Number}),
 	})
+
 	block.Metadata.Metadata[common.BlockMetadataIndex_ORDERER] = metadata
 
+	tuple := &ByteBufferTuple{
+		A: protoutil.MarshalOrPanic(block.Data),
+		B: protoutil.MarshalOrPanic(block.Metadata),
+	}
 	prop := types.Proposal{
 		Header:               protoutil.MarshalOrPanic(block.Header),
-		Payload:              protoutil.MarshalOrPanic(block.Data),
-		Metadata:             protoutil.MarshalOrPanic(block.Metadata),
+		Payload:              tuple.ToBytes(),
+		Metadata:             metadata,
 		VerificationSequence: int64(lastConfigBlock.Header.Number),
 	}
 
@@ -118,4 +125,23 @@ func lastBlockFromLedgerOrPanic(ledger Ledger, logger PanicLogger) *common.Block
 		logger.Panicf("Failed retrieving last block")
 	}
 	return lastBlock
+}
+
+type ByteBufferTuple struct {
+	A []byte
+	B []byte
+}
+
+func (bbt *ByteBufferTuple) ToBytes() []byte {
+	bytes, err := asn1.Marshal(*bbt)
+	if err != nil {
+		panic(err)
+	}
+	return bytes
+}
+
+func (bbt *ByteBufferTuple) FromBytes(bytes []byte) {
+	if _, err := asn1.Unmarshal(bytes, bbt); err != nil {
+		panic(err)
+	}
 }

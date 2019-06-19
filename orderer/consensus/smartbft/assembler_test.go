@@ -148,12 +148,18 @@ func proposalFromRequests(seq, lastConfigSeq uint64, lastBlockHash, metadata []b
 	block.Metadata.Metadata[common.BlockMetadataIndex_LAST_CONFIG] = protoutil.MarshalOrPanic(&common.Metadata{
 		Value: protoutil.MarshalOrPanic(&common.LastConfig{Index: lastConfigSeq}),
 	})
+
 	block.Metadata.Metadata[common.BlockMetadataIndex_ORDERER] = metadata
+
+	tuple := &smartbft.ByteBufferTuple{
+		A: protoutil.MarshalOrPanic(block.Data),
+		B: protoutil.MarshalOrPanic(block.Metadata),
+	}
 
 	return types.Proposal{
 		Header:               protoutil.MarshalOrPanic(block.Header),
-		Payload:              protoutil.MarshalOrPanic(block.Data),
-		Metadata:             protoutil.MarshalOrPanic(block.Metadata),
+		Payload:              tuple.ToBytes(),
+		Metadata:             metadata,
 		VerificationSequence: int64(lastConfigSeq),
 	}
 }
