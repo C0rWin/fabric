@@ -159,12 +159,12 @@ func verifyBlockDataAndMetadata(block *common.Block, verifyReq func(req []byte) 
 		return errors.Errorf("last config in proposal is %d, expecting %d", lastConfig, verificationSeq)
 	}
 
-	metadataInBlock := &smartbftprotos.BlockMetadata{}
+	metadataInBlock := &smartbftprotos.ViewMetadata{}
 	if err := proto.Unmarshal(block.Metadata.Metadata[common.BlockMetadataIndex_ORDERER], metadataInBlock); err != nil {
 		return errors.Wrap(err, "failed unmarshaling smartbft metadata from block")
 	}
 
-	metadataFromProposal := &smartbftprotos.BlockMetadata{}
+	metadataFromProposal := &smartbftprotos.ViewMetadata{}
 	if err := proto.Unmarshal(metadata, metadataInBlock); err != nil {
 		return errors.Wrap(err, "failed unmarshaling smartbft metadata from proposal")
 	}

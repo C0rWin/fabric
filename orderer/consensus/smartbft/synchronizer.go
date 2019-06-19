@@ -44,7 +44,7 @@ func (s *Synchronizer) Close() {
 	//TODO
 }
 
-func (s *Synchronizer) Sync() (smartbftprotos.BlockMetadata, uint64) {
+func (s *Synchronizer) Sync() (smartbftprotos.ViewMetadata, uint64) {
 	//TODO
-	return smartbftprotos.BlockMetadata{}, 0
+	return smartbftprotos.ViewMetadata{}, 0
 }
