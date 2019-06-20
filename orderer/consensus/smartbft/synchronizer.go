@@ -7,44 +7,116 @@ SPDX-License-Identifier: Apache-2.0
 package smartbft
 
 import (
+	"sort"
+
+	"github.com/hyperledger/fabric/protoutil"
+	"github.com/pkg/errors"
+
 	"github.com/SmartBFT-Go/consensus/smartbftprotos"
-	"github.com/hyperledger/fabric/orderer/common/cluster"
-	"github.com/hyperledger/fabric/orderer/common/localconfig"
+	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/orderer/consensus"
 )
 
 type Synchronizer struct {
-	support       consensus.ConsenterSupport
-	baseDialer    *cluster.PredicateDialer
-	clusterConfig localconfig.Cluster
-	blockPuller   BlockPuller
+	support     consensus.ConsenterSupport
+	blockPuller BlockPuller
+	clusterSize uint
+	logger      *flogging.FabricLogger
 }
 
 func NewSynchronizer(
 	support consensus.ConsenterSupport,
-	baseDialer *cluster.PredicateDialer,
-	clusterConfig localconfig.Cluster) (*Synchronizer, error) {
-
-	puller, err := newBlockPuller(support, baseDialer, clusterConfig)
-	if err != nil {
-		return nil, err
-	}
-
+	blockPuller BlockPuller,
+	clusterSize uint,
+	logger *flogging.FabricLogger,
+) (*Synchronizer, error) {
 	s := &Synchronizer{
-		support:       support,
-		baseDialer:    baseDialer,
-		clusterConfig: clusterConfig,
-		blockPuller:   puller,
+		support:     support,
+		blockPuller: blockPuller,
+		clusterSize: clusterSize,
+		logger:      logger,
 	}
-	//TODO
+
+	if logger == nil {
+		s.logger = flogging.MustGetLogger("orderer.consensus.smartbft.sync").With("channel", support.ChainID())
+	}
+
 	return s, nil
 }
 
 func (s *Synchronizer) Close() {
-	//TODO
+	s.blockPuller.Close()
 }
 
 func (s *Synchronizer) Sync() (smartbftprotos.ViewMetadata, uint64) {
-	//TODO
-	return smartbftprotos.ViewMetadata{}, 0
+	metadata, sqn, err := s.synchronize()
+	if err != nil {
+		s.logger.Warnf("Could not synchronize with remote peers, returning state from local ledger; error: %s", err)
+		block := s.support.Block(s.support.Height() - 1)
+		return getViewMetadataLastConfigSqnFromBlock(block)
+	}
+
+	return metadata, sqn
+}
+
+func (s *Synchronizer) synchronize() (smartbftprotos.ViewMetadata, uint64, error) {
+
+	heightByEndpoint, err := s.blockPuller.HeightsByEndpoints()
+	if err != nil {
+		return smartbftprotos.ViewMetadata{}, 0, errors.Wrap(err, "Cannot get HeightsByEndpoints")
+	}
+
+	heights := []uint64{}
+	for _, value := range heightByEndpoint {
+		heights = append(heights, value)
+	}
+	if len(heights) == 0 {
+		return smartbftprotos.ViewMetadata{}, 0, errors.New("No cluster members to synchronize with")
+	}
+
+	targetHeight := s.computeTargetHeight(heights, s.clusterSize)
+	startHeight := s.support.Height()
+	currentHeight := startHeight
+	s.logger.Debugf("Current height [%d], target height [%d]", currentHeight, targetHeight)
+
+	for currentHeight < targetHeight {
+		block := s.blockPuller.PullBlock(currentHeight)
+		if block == nil {
+			s.logger.Debugf("Failed to fetch block [%d] from cluster", currentHeight)
+			break
+		}
+
+		if protoutil.IsConfigBlock(block) {
+			s.support.WriteConfigBlock(block, nil)
+		} else {
+			s.support.WriteBlock(block, nil)
+		}
+		s.logger.Debugf("Fetched and committed block [%d] from cluster", currentHeight)
+		currentHeight++
+	}
+
+	s.logger.Infof("Finished synchronizing with cluster, fetched %d blocks, starting from block [%d], up until and including block [%d]",
+		currentHeight-startHeight, startHeight-1, currentHeight-1)
+	lastBlock := s.support.Block(currentHeight - 1)
+	if lastBlock == nil {
+		return smartbftprotos.ViewMetadata{}, 0, errors.Errorf("Could not retrieve block [%d] from local ledger", currentHeight-1)
+	}
+	metadata, sqn := getViewMetadataLastConfigSqnFromBlock(lastBlock)
+	s.logger.Debugf("Last block ViewMetadata=%s, lastConfigSqn=%d", metadata, sqn)
+	return metadata, sqn, nil
+}
+
+// computeTargetHeight compute the target height to synchronize to.
+//
+// heights: a slice containing the heights of accessible peers, length must be >0.
+// clusterSize: the cluster size, must be >0.
+func (s *Synchronizer) computeTargetHeight(heights []uint64, clusterSize uint) uint64 {
+	sort.Slice(heights, func(i, j int) bool { return heights[i] > heights[j] }) //Descending
+	bftF := (clusterSize - 1) / 3                                               //The number of tolerated byzantine faults
+	lenH := len(heights)
+
+	if uint(lenH) < bftF+1 {
+		return heights[lenH-1]
+	}
+	return heights[bftF]
 }

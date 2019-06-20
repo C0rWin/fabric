@@ -4,58 +4,252 @@ Copyright IBM Corp. All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package smartbft
+package smartbft_test
 
 import (
 	"io/ioutil"
 	"testing"
 
+	"github.com/hyperledger/fabric/common/flogging"
+	mocks2 "github.com/hyperledger/fabric/orderer/consensus/mocks"
+	"go.uber.org/zap"
+
+	"github.com/SmartBFT-Go/consensus/smartbftprotos"
+	"github.com/hyperledger/fabric/orderer/consensus/smartbft"
+	"github.com/hyperledger/fabric/orderer/consensus/smartbft/mocks"
+	"github.com/stretchr/testify/require"
+
 	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric/common/crypto/tlsgen"
-	"github.com/hyperledger/fabric/core/comm"
-	"github.com/hyperledger/fabric/orderer/common/cluster"
-	"github.com/hyperledger/fabric/orderer/common/localconfig"
-	"github.com/hyperledger/fabric/orderer/mocks/common/multichannel"
+	//"github.com/hyperledger/fabric/orderer/mocks/common/multichannel"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNewSynchronizer(t *testing.T) {
-	ca, err := tlsgen.NewCA()
-	assert.NoError(t, err)
-
+func TestSynchronizerSync(t *testing.T) {
 	blockBytes, err := ioutil.ReadFile("testdata/mychannel.block")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	goodConfigBlock := &common.Block{}
-	assert.NoError(t, proto.Unmarshal(blockBytes, goodConfigBlock))
+	require.NoError(t, proto.Unmarshal(blockBytes, goodConfigBlock))
 
-	lastBlock := &common.Block{
-		Metadata: &common.BlockMetadata{
-			Metadata: [][]byte{{}, protoutil.MarshalOrPanic(&common.Metadata{
-				Value: protoutil.MarshalOrPanic(&common.LastConfig{Index: 42}),
-			})},
-		},
-	}
+	b99 := makeBlockWithMetadata(99, 42, &smartbftprotos.ViewMetadata{ViewId: 1, LatestSequence: 12})
+	b100 := makeBlockWithMetadata(100, 42, &smartbftprotos.ViewMetadata{ViewId: 1, LatestSequence: 13})
+	b101 := makeConfigBlockWithMetadata(goodConfigBlock, 101, &smartbftprotos.ViewMetadata{ViewId: 2, LatestSequence: 1})
+	b102 := makeBlockWithMetadata(102, 101, &smartbftprotos.ViewMetadata{ViewId: 2, LatestSequence: 3})
 
-	cs := &multichannel.ConsenterSupport{
-		HeightVal: 100,
-		BlockByIndex: map[uint64]*common.Block{
-			42: goodConfigBlock,
-			99: lastBlock,
-		},
-	}
+	t.Run("no remotes", func(t *testing.T) {
+		bp := &mocks.FakeBlockPuller{}
+		fakeCS := &mocks2.FakeConsenterSupport{}
+		fakeCS.ChainIDReturns("mychannel")
+		fakeCS.HeightReturns(100)
+		fakeCS.BlockReturns(b99)
 
-	dialer := &cluster.PredicateDialer{
-		Config: comm.ClientConfig{
-			SecOpts: &comm.SecureOptions{
-				Certificate: ca.CertBytes(),
+		syn, err := smartbft.NewSynchronizer(fakeCS, bp, 4, flogging.NewFabricLogger(zap.NewExample()))
+		require.NoError(t, err)
+		require.NotNil(t, syn)
+
+		metadata, sqn := syn.Sync()
+		assert.Equal(t, uint64(1), metadata.ViewId)
+		assert.Equal(t, uint64(12), metadata.LatestSequence)
+		assert.Equal(t, uint64(42), sqn)
+	})
+
+	t.Run("all nodes present", func(t *testing.T) {
+		bp := &mocks.FakeBlockPuller{}
+		bp.HeightsByEndpointsReturns(
+			map[string]uint64{
+				"example.com:1": 100,
+				"example.com:2": 102,
+				"example.com:3": 103,
+				"example.com:4": 200, //byzantine, lying
 			},
-		},
-	}
+			nil,
+		)
+		bp.PullBlockReturnsOnCall(0, b100)
+		bp.PullBlockReturnsOnCall(1, b101)
+		bp.PullBlockReturnsOnCall(2, b102)
 
-	syn, err := NewSynchronizer(cs, dialer, localconfig.Cluster{})
-	assert.NoError(t, err)
-	assert.NotNil(t, syn)
+		height := uint64(100)
+		ledger := map[uint64]*common.Block{99: b99}
+
+		fakeCS := &mocks2.FakeConsenterSupport{}
+		fakeCS.ChainIDReturns("mychannel")
+		fakeCS.HeightCalls(func() uint64 { return height })
+		fakeCS.WriteConfigBlockCalls(func(b *common.Block, m []byte) {
+			ledger[height] = b
+			height++
+		})
+		fakeCS.WriteBlockCalls(func(b *common.Block, m []byte) {
+			ledger[height] = b
+			height++
+		})
+		fakeCS.BlockCalls(func(sqn uint64) *common.Block {
+			return ledger[sqn]
+		})
+
+		syn, err := smartbft.NewSynchronizer(fakeCS, bp, 4, flogging.NewFabricLogger(zap.NewExample()))
+		require.NoError(t, err)
+		require.NotNil(t, syn)
+
+		metadata, sqn := syn.Sync()
+		assert.Equal(t, uint64(2), metadata.ViewId)
+		assert.Equal(t, uint64(3), metadata.LatestSequence)
+		assert.Equal(t, uint64(101), sqn)
+	})
+
+	t.Run("3/4 nodes present", func(t *testing.T) {
+		bp := &mocks.FakeBlockPuller{}
+		bp.HeightsByEndpointsReturns(
+			map[string]uint64{
+				"example.com:1": 100,
+				"example.com:2": 102,
+				"example.com:4": 200, //byzantine, lying
+			},
+			nil,
+		)
+		bp.PullBlockReturnsOnCall(0, b100)
+		bp.PullBlockReturnsOnCall(1, b101)
+		bp.PullBlockReturnsOnCall(2, b102)
+
+		height := uint64(100)
+		ledger := map[uint64]*common.Block{99: b99}
+
+		fakeCS := &mocks2.FakeConsenterSupport{}
+		fakeCS.ChainIDReturns("mychannel")
+		fakeCS.HeightCalls(func() uint64 { return height })
+		fakeCS.WriteConfigBlockCalls(func(b *common.Block, m []byte) {
+			ledger[height] = b
+			height++
+		})
+		fakeCS.WriteBlockCalls(func(b *common.Block, m []byte) {
+			ledger[height] = b
+			height++
+		})
+		fakeCS.BlockCalls(func(sqn uint64) *common.Block {
+			return ledger[sqn]
+		})
+
+		syn, err := smartbft.NewSynchronizer(fakeCS, bp, 4, flogging.NewFabricLogger(zap.NewExample()))
+		require.NoError(t, err)
+		require.NotNil(t, syn)
+
+		metadata, sqn := syn.Sync()
+		assert.Equal(t, uint64(2), metadata.ViewId)
+		assert.Equal(t, uint64(1), metadata.LatestSequence)
+		assert.Equal(t, uint64(101), sqn)
+	})
+
+	t.Run("2/4 nodes present", func(t *testing.T) {
+		bp := &mocks.FakeBlockPuller{}
+		bp.HeightsByEndpointsReturns(
+			map[string]uint64{
+				"example.com:1": 100,
+				"example.com:4": 200, //byzantine, lying
+			},
+			nil,
+		)
+		bp.PullBlockReturnsOnCall(0, b100)
+		bp.PullBlockReturnsOnCall(1, b101)
+		bp.PullBlockReturnsOnCall(2, b102)
+
+		height := uint64(100)
+		ledger := map[uint64]*common.Block{99: b99}
+
+		fakeCS := &mocks2.FakeConsenterSupport{}
+		fakeCS.ChainIDReturns("mychannel")
+		fakeCS.HeightCalls(func() uint64 { return height })
+		fakeCS.WriteConfigBlockCalls(func(b *common.Block, m []byte) {
+			ledger[height] = b
+			height++
+		})
+		fakeCS.WriteBlockCalls(func(b *common.Block, m []byte) {
+			ledger[height] = b
+			height++
+		})
+		fakeCS.BlockCalls(func(sqn uint64) *common.Block {
+			return ledger[sqn]
+		})
+
+		syn, err := smartbft.NewSynchronizer(fakeCS, bp, 4, flogging.NewFabricLogger(zap.NewExample()))
+		require.NoError(t, err)
+		require.NotNil(t, syn)
+
+		metadata, sqn := syn.Sync()
+		assert.Equal(t, uint64(1), metadata.ViewId)
+		assert.Equal(t, uint64(12), metadata.LatestSequence)
+		assert.Equal(t, uint64(42), sqn)
+	})
+
+	t.Run("1/4 nodes present", func(t *testing.T) {
+		bp := &mocks.FakeBlockPuller{}
+		bp.HeightsByEndpointsReturns(
+			map[string]uint64{
+				"example.com:1": 100,
+			},
+			nil,
+		)
+		bp.PullBlockReturnsOnCall(0, b100)
+		bp.PullBlockReturnsOnCall(1, b101)
+		bp.PullBlockReturnsOnCall(2, b102)
+
+		height := uint64(100)
+		ledger := map[uint64]*common.Block{99: b99}
+
+		fakeCS := &mocks2.FakeConsenterSupport{}
+		fakeCS.ChainIDReturns("mychannel")
+		fakeCS.HeightCalls(func() uint64 { return height })
+		fakeCS.WriteConfigBlockCalls(func(b *common.Block, m []byte) {
+			ledger[height] = b
+			height++
+		})
+		fakeCS.WriteBlockCalls(func(b *common.Block, m []byte) {
+			ledger[height] = b
+			height++
+		})
+		fakeCS.BlockCalls(func(sqn uint64) *common.Block {
+			return ledger[sqn]
+		})
+
+		syn, err := smartbft.NewSynchronizer(fakeCS, bp, 4, flogging.NewFabricLogger(zap.NewExample()))
+		require.NoError(t, err)
+		require.NotNil(t, syn)
+
+		metadata, sqn := syn.Sync()
+		assert.Equal(t, uint64(1), metadata.ViewId)
+		assert.Equal(t, uint64(12), metadata.LatestSequence)
+		assert.Equal(t, uint64(42), sqn)
+	})
+}
+
+func makeBlockWithMetadata(sqnNum, lastConfigIndex uint64, viewMetadata *smartbftprotos.ViewMetadata) *common.Block {
+	block := protoutil.NewBlock(sqnNum, nil)
+	block.Metadata.Metadata[common.BlockMetadataIndex_LAST_CONFIG] = protoutil.MarshalOrPanic(
+		&common.Metadata{
+			Value: protoutil.MarshalOrPanic(&common.LastConfig{Index: lastConfigIndex}),
+		},
+	)
+	block.Metadata.Metadata[common.BlockMetadataIndex_ORDERER] = protoutil.MarshalOrPanic(
+		&common.Metadata{
+			Value: protoutil.MarshalOrPanic(viewMetadata),
+		},
+	)
+	return block
+}
+
+func makeConfigBlockWithMetadata(configBlock *common.Block, sqnNum uint64, viewMetadata *smartbftprotos.ViewMetadata) *common.Block {
+	block := proto.Clone(configBlock).(*common.Block)
+	block.Header.Number = sqnNum
+
+	block.Metadata.Metadata[common.BlockMetadataIndex_LAST_CONFIG] = protoutil.MarshalOrPanic(
+		&common.Metadata{
+			Value: protoutil.MarshalOrPanic(&common.LastConfig{Index: sqnNum}),
+		},
+	)
+	block.Metadata.Metadata[common.BlockMetadataIndex_ORDERER] = protoutil.MarshalOrPanic(
+		&common.Metadata{
+			Value: protoutil.MarshalOrPanic(viewMetadata),
+		},
+	)
+	return block
 }

@@ -12,11 +12,13 @@ import (
 	"encoding/pem"
 
 	"github.com/SmartBFT-Go/consensus/pkg/types"
+	"github.com/SmartBFT-Go/consensus/smartbftprotos"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/orderer/common/localconfig"
 	"github.com/hyperledger/fabric/orderer/consensus"
+	"github.com/hyperledger/fabric/orderer/consensus/etcdraft"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/msp"
 	"github.com/hyperledger/fabric/protoutil"
@@ -40,7 +42,7 @@ func newBlockPuller(
 	stdDialer.Config.SecOpts.VerifyCertificate = nil
 
 	// Extract the TLS CA certs and endpoints from the configuration,
-	endpoints, err := endpointConfigFromFromSupport(support)
+	endpoints, err := etcdraft.EndpointconfigFromFromSupport(support)
 	if err != nil {
 		return nil, err
 	}
@@ -64,40 +66,20 @@ func newBlockPuller(
 		Dialer:              stdDialer,
 	}
 
-	// TODO do we need this?
-	//return &LedgerBlockPuller{
-	//	Height:         support.Height,
-	//	BlockRetriever: support,
-	//	BlockPuller:    bp,
-	//}, nil
-
 	return bp, nil
 }
 
-// endpointConfigFromFromSupport extracts TLS CA certificates and endpoints from the ConsenterSupport
-func endpointConfigFromFromSupport(support consensus.ConsenterSupport) ([]cluster.EndpointCriteria, error) {
-	lastConfigBlock, err := lastConfigBlockFromSupport(support)
+func getViewMetadataLastConfigSqnFromBlock(block *common.Block) (smartbftprotos.ViewMetadata, uint64) {
+	ordererMetadata := protoutil.GetMetadataFromBlockOrPanic(block, common.BlockMetadataIndex_ORDERER)
+	var viewMetadata smartbftprotos.ViewMetadata
+	err := proto.Unmarshal(ordererMetadata.Value, &viewMetadata)
 	if err != nil {
-		return nil, err
+		return smartbftprotos.ViewMetadata{}, 0
 	}
-	endpointconf, err := cluster.EndpointconfigFromConfigBlock(lastConfigBlock)
-	if err != nil {
-		return nil, err
-	}
-	return endpointconf, nil
-}
 
-func lastConfigBlockFromSupport(support consensus.ConsenterSupport) (*common.Block, error) {
-	lastBlockSeq := support.Height() - 1
-	lastBlock := support.Block(lastBlockSeq)
-	if lastBlock == nil {
-		return nil, errors.Errorf("unable to retrieve block [%d]", lastBlockSeq)
-	}
-	lastConfigBlock, err := cluster.LastConfigBlock(lastBlock, support)
-	if err != nil {
-		return nil, err
-	}
-	return lastConfigBlock, nil
+	sqn := protoutil.GetLastConfigIndexFromBlockOrPanic(block)
+
+	return viewMetadata, sqn
 }
 
 type RequestInspector struct {
