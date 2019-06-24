@@ -7,10 +7,9 @@ SPDX-License-Identifier: Apache-2.0
 package smartbft
 
 import (
-	"encoding/pem"
-
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/pem"
 
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	"github.com/golang/protobuf/proto"
@@ -132,10 +131,14 @@ func (ri *RequestInspector) requestIDFromSigHeader(sigHdr *common.SignatureHeade
 		return types.RequestInfo{}, err
 	}
 
-	txID := sha256.Sum256(append(sigHdr.Nonce, sigHdr.Creator...))
+	var preimage []byte
+	preimage = append(preimage, sigHdr.Nonce...)
+	preimage = append(preimage, sigHdr.Creator...)
+	txID := sha256.Sum256(preimage)
+	clientID := sha256.Sum256(sigHdr.Creator)
 	return types.RequestInfo{
 		ID:       hex.EncodeToString(txID[:]),
-		ClientID: hex.EncodeToString(sha256.Sum256(sigHdr.Creator)[:]),
+		ClientID: hex.EncodeToString(clientID[:]),
 	}, nil
 }
 
