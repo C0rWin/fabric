@@ -46,7 +46,6 @@ func (sig Signature) AsBytes(signer identity.Signer) []byte {
 
 func proposalToBlock(proposal types.Proposal) (*common.Block, error) {
 	block := &common.Block{}
-	// TODO: check errors...
 	if err := proto.Unmarshal(proposal.Header, block.Header); err != nil {
 		return nil, errors.Wrap(err, "bad header")
 	}

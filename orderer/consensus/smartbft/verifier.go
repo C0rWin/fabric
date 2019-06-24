@@ -34,9 +34,12 @@ type AccessController interface {
 	Evaluate(signatureSet []*protoutil.SignedData) error
 }
 
+type requestVerifier func(req []byte) (types.RequestInfo, error)
+
 type NodeIdentitiesByID map[uint64][]byte
 
 type Verifier struct {
+	ReqInspector          RequestInspector
 	Id2Identity           NodeIdentitiesByID
 	BlockVerifier         BlockVerifier
 	AccessController      AccessController
@@ -44,50 +47,39 @@ type Verifier struct {
 	Logger                PanicLogger
 }
 
-func (v *Verifier) VerifyProposal(proposal types.Proposal, prevHeader []byte) error {
+func (v *Verifier) VerifyProposal(proposal types.Proposal, prevHeader []byte) ([]types.RequestInfo, error) {
 	block, err := proposalToBlock(proposal)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := verifyBlockHeader(block, prevHeader, v.Logger); err != nil {
-		return err
+		return nil, err
 	}
 
-	if err := verifyBlockDataAndMetadata(block, v.VerifyRequest, v.VerificationSequence(), proposal.Metadata); err != nil {
-		return err
+	requests, err := verifyBlockDataAndMetadata(block, v.VerifyRequest, v.VerificationSequence(), proposal.Metadata)
+	if err != nil {
+		return nil, err
 	}
 
-	return nil
+	return requests, nil
 }
 
-func (v *Verifier) VerifyRequest(val []byte) error {
-	envelope, err := protoutil.UnmarshalEnvelope(val)
+func (v *Verifier) VerifyRequest(rawRequest []byte) (types.RequestInfo, error) {
+	req, err := v.ReqInspector.unwrapReq(rawRequest)
 	if err != nil {
-		return err
-	}
-	payload := &common.Payload{}
-	if err := proto.Unmarshal(envelope.Payload, payload); err != nil {
-		return errors.Wrap(err, "failed unmarshaling payload")
-	}
-
-	if payload.Header == nil {
-		return errors.Errorf("no header in payload")
-	}
-
-	sigHdr := &common.SignatureHeader{}
-	if err := proto.Unmarshal(payload.Header.SignatureHeader, sigHdr); err != nil {
-		return err
+		return types.RequestInfo{}, err
 	}
 
 	err = v.AccessController.Evaluate([]*protoutil.SignedData{
-		{Identity: sigHdr.Creator, Data: envelope.Payload, Signature: envelope.Signature},
+		{Identity: req.sigHdr.Creator, Data: req.envelope.Payload, Signature: req.envelope.Signature},
 	})
 
 	if err != nil {
-		return errors.Wrap(err, "access denied")
+		return types.RequestInfo{}, errors.Wrap(err, "access denied")
 	}
-	return nil
+
+	return v.ReqInspector.requestIDFromSigHeader(req.sigHdr)
 }
 
 func (v *Verifier) VerifyConsenterSig(signature types.Signature, prop types.Proposal) error {
@@ -135,43 +127,46 @@ func verifyBlockHeader(block *common.Block, prevHeader []byte, logger PanicLogge
 	return nil
 }
 
-func verifyBlockDataAndMetadata(block *common.Block, verifyReq func(req []byte) error, verificationSeq uint64, metadata []byte) error {
+func verifyBlockDataAndMetadata(block *common.Block, verifyReq requestVerifier, verificationSeq uint64, metadata []byte) ([]types.RequestInfo, error) {
+	var res []types.RequestInfo
 	if block.Data == nil || len(block.Data.Data) == 0 {
-		return errors.New("empty block data")
+		return nil, errors.New("empty block data")
 	}
 
 	for _, txn := range block.Data.Data {
-		if err := verifyReq(txn); err != nil {
-			return err
+		if reqInfo, err := verifyReq(txn); err != nil {
+			return nil, err
+		} else {
+			res = append(res, reqInfo)
 		}
 	}
 
 	if block.Metadata == nil || len(block.Metadata.Metadata) < len(common.BlockMetadataIndex_name) {
-		return errors.New("block metadata is either missing or contains too few entries")
+		return nil, errors.New("block metadata is either missing or contains too few entries")
 	}
 
 	lastConfig, err := protoutil.GetLastConfigIndexFromBlock(block)
 	if err != nil {
-		return errors.Wrap(err, "could not fetch last config from block")
+		return nil, errors.Wrap(err, "could not fetch last config from block")
 	}
 
 	if verificationSeq != lastConfig {
-		return errors.Errorf("last config in proposal is %d, expecting %d", lastConfig, verificationSeq)
+		return nil, errors.Errorf("last config in proposal is %d, expecting %d", lastConfig, verificationSeq)
 	}
 
 	metadataInBlock := &smartbftprotos.ViewMetadata{}
 	if err := proto.Unmarshal(block.Metadata.Metadata[common.BlockMetadataIndex_ORDERER], metadataInBlock); err != nil {
-		return errors.Wrap(err, "failed unmarshaling smartbft metadata from block")
+		return nil, errors.Wrap(err, "failed unmarshaling smartbft metadata from block")
 	}
 
 	metadataFromProposal := &smartbftprotos.ViewMetadata{}
 	if err := proto.Unmarshal(metadata, metadataInBlock); err != nil {
-		return errors.Wrap(err, "failed unmarshaling smartbft metadata from proposal")
+		return nil, errors.Wrap(err, "failed unmarshaling smartbft metadata from proposal")
 	}
 
 	if !proto.Equal(metadataInBlock, metadataFromProposal) {
-		return errors.Errorf("expected metadata in block to be %v but got %v", metadataFromProposal, metadataInBlock)
+		return nil, errors.Errorf("expected metadata in block to be %v but got %v", metadataFromProposal, metadataInBlock)
 	}
 
-	return nil
+	return res, nil
 }
