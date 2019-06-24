@@ -364,6 +364,28 @@ Orderer: &OrdererDefaults
             # SnapshotIntervalSize defines number of bytes per which a snapshot is taken
             SnapshotIntervalSize: 20 MB
 
+    # SmartBFT defines configuration which must be set when the "smartbft"
+    # orderertype is chosen.
+    SmartBFT:
+        # The set of BFT replicas for this network.
+        Consenters:
+            - Host: smartbft0.example.com
+              Port: 7050
+              ClientTLSCert: path/to/ClientTLSCert0
+              ServerTLSCert: path/to/ServerTLSCert0
+              Identity: path/to/OSN/signcert0
+            - Host: smartbft1.example.com
+              Port: 7050
+              ClientTLSCert: path/to/ClientTLSCert1
+              ServerTLSCert: path/to/ServerTLSCert1
+              Identity: path/to/OSN/signcert1
+            - Host: smartbft2.example.com
+              Port: 7050
+              ClientTLSCert: path/to/ClientTLSCert2
+              ServerTLSCert: path/to/ServerTLSCert2
+              Identity: path/to/OSN/signcert2
+
+
     # Organizations lists the orgs participating on the orderer side of the
     # network.
     Organizations:
@@ -577,6 +599,40 @@ Profiles:
         Orderer:
             <<: *OrdererDefaults
             OrdererType: etcdraft
+            Organizations:
+                - <<: *SampleOrg
+                  Policies:
+                      <<: *SampleOrgPolicies
+                      Admins:
+                          Type: Signature
+                          Rule: "OR('SampleOrg.member')"
+        Application:
+            <<: *ApplicationDefaults
+            Organizations:
+                - <<: *SampleOrg
+                  Policies:
+                      <<: *SampleOrgPolicies
+                      Admins:
+                          Type: Signature
+                          Rule: "OR('SampleOrg.member')"
+        Consortiums:
+            SampleConsortium:
+                Organizations:
+                    - <<: *SampleOrg
+                      Policies:
+                          <<: *SampleOrgPolicies
+                          Admins:
+                              Type: Signature
+                              Rule: "OR('SampleOrg.member')"
+
+
+    # SampleDevModeSmartBFT defines a configuration that differs from the
+    # SampleDevModeSolo one only in that it uses the Smart BFT orderer.
+    SampleDevModeSmartBFT:
+        <<: *ChannelDefaults
+        Orderer:
+            <<: *OrdererDefaults
+            OrdererType: smartbft
             Organizations:
                 - <<: *SampleOrg
                   Policies:

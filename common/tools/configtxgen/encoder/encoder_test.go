@@ -9,6 +9,7 @@ package encoder_test
 import (
 	"fmt"
 
+	"github.com/hyperledger/fabric/protos/orderer/smartbft"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
@@ -278,6 +279,46 @@ var _ = Describe("Encoder", func() {
 				It("wraps and returns the error", func() {
 					_, err := encoder.NewOrdererGroup(conf)
 					Expect(err).To(MatchError("cannot marshal metadata for orderer type etcdraft: cannot load client cert for consenter :0: open : no such file or directory"))
+				})
+			})
+		})
+
+		Context("when the consensus type is smartbft", func() {
+			BeforeEach(func() {
+				conf.OrdererType = "smartbft"
+				conf.SmartBFT = &smartbft.ConfigMetadata{
+					Options: &smartbft.Options{
+						Config: []byte{0},
+					},
+				}
+			})
+
+			It("adds the smartbft metadata", func() {
+				cg, err := encoder.NewOrdererGroup(conf)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(cg.Values)).To(Equal(5))
+				consensusType := &ab.ConsensusType{}
+				err = proto.Unmarshal(cg.Values["ConsensusType"].Value, consensusType)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(consensusType.Type).To(Equal("smartbft"))
+				metadata := &smartbft.ConfigMetadata{}
+				err = proto.Unmarshal(consensusType.Metadata, metadata)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(metadata.Options.Config).To(Equal([]byte{0}))
+			})
+
+			Context("when the smartbft configuration is bad", func() {
+				BeforeEach(func() {
+					conf.SmartBFT = &smartbft.ConfigMetadata{
+						Consenters: []*smartbft.Consenter{
+							{},
+						},
+					}
+				})
+
+				It("wraps and returns the error", func() {
+					_, err := encoder.NewOrdererGroup(conf)
+					Expect(err).To(MatchError("cannot marshal metadata for orderer type smartbft: cannot load client cert for consenter :0: open : no such file or directory"))
 				})
 			})
 		})

@@ -14,7 +14,7 @@ option java_package = "org.hyperledger.fabric.protos.orderer.smartbft";
 package smartbft;
 
 // ConfigMetadata is serialized and set as the value of ConsensusType.Metadata in
-// a channel configuration when the ConsensusType.Type is set "bftsmart".
+// a channel configuration when the ConsensusType.Type is set "smartbft".
 message ConfigMetadata {
     repeated Consenter consenters = 1;
     Options options = 2;
@@ -25,25 +25,14 @@ message Consenter {
     uint32 consenter_id = 1;
     string host = 2;
     uint32 port = 3;
-    bytes identity = 4; // consenter serialized identity
-    bytes client_tls_cert = 5;
-    bytes server_tls_cert = 6;
+    string msp_id = 4;
+    bytes identity = 5; // consenter serialized identity
+    bytes client_tls_cert = 6;
+    bytes server_tls_cert = 7;
 }
 
-// Options to be specified for all the bftsmart nodes. These can be modified on a
+// Options to be specified for all the smartbft nodes. These can be modified on a
 // per-channel basis.
 message Options {
     bytes config = 1;
 }
-
-// BlockMetadata stores data used by the BFTSMART OSNs when
-// coordinating with each other, to be serialized into
-// block metadata field and used after failures and restarts.
-// Maintains view configuration information such as: view id,
-// latest sequence number. View id need to defer the id of the
-// the leader.
-message BlockMetadata {
-    uint64 view_id = 1;
-    uint64 latest_sequence = 2;
-}
-
