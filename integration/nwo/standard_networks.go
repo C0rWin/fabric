@@ -113,14 +113,14 @@ func BasicSmartBFT() *Config {
 	config := BasicSolo()
 	config.Consensus.Type = "smartbft"
 	config.Profiles = []*Profile{{
-		Name:     "SampleDevModeEtcdRaft",
+		Name:     "SampleDevModeSmartBFT",
 		Orderers: []string{"orderer"},
 	}, {
 		Name:          "TwoOrgsChannel",
 		Consortium:    "SampleConsortium",
 		Organizations: []string{"Org1", "Org2"},
 	}}
-	config.SystemChannel.Profile = "SampleDevModeEtcdRaft"
+	config.SystemChannel.Profile = "SampleDevModeSmartBFT"
 	return config
 }
 
