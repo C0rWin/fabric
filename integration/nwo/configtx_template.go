@@ -94,6 +94,17 @@ Profiles:{{ range .Profiles }}
           ServerTLSCert: {{ $w.OrdererLocalCryptoDir . "tls" }}/server.crt
         {{- end }}{{- end }}
       {{- end }}
+      {{- if eq $w.Consensus.Type "smartbft" }}
+      SmartBFT:
+        Consenters:{{ range .Orderers }}{{ with $w.Orderer . }}
+        - Host: 127.0.0.1
+          Port: {{ $w.OrdererPort . "Listen" }}
+          ClientTLSCert: {{ $w.OrdererLocalCryptoDir . "tls" }}/server.crt
+          ServerTLSCert: {{ $w.OrdererLocalCryptoDir . "tls" }}/server.crt
+          MSPID: {{ $w.OrdererMSPID . }}
+          Identity: {{ $w.OrdererCert . }}
+        {{- end }}{{- end }}
+      {{- end }}
       Organizations:{{ range $w.OrgsForOrderers .Orderers }}
       - *{{ .MSPID }}
       {{- end }}
