@@ -9,6 +9,8 @@ package smartbft
 import (
 	"encoding/hex"
 
+	"sync"
+
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	"github.com/SmartBFT-Go/consensus/smartbftprotos"
 	"github.com/golang/protobuf/proto"
@@ -128,17 +130,8 @@ func verifyBlockHeader(block *common.Block, prevHeader []byte, logger PanicLogge
 }
 
 func verifyBlockDataAndMetadata(block *common.Block, verifyReq requestVerifier, verificationSeq uint64, metadata []byte) ([]types.RequestInfo, error) {
-	var res []types.RequestInfo
 	if block.Data == nil || len(block.Data.Data) == 0 {
 		return nil, errors.New("empty block data")
-	}
-
-	for _, txn := range block.Data.Data {
-		if reqInfo, err := verifyReq(txn); err != nil {
-			return nil, err
-		} else {
-			res = append(res, reqInfo)
-		}
 	}
 
 	if block.Metadata == nil || len(block.Metadata.Metadata) < len(common.BlockMetadataIndex_name) {
@@ -166,6 +159,48 @@ func verifyBlockDataAndMetadata(block *common.Block, verifyReq requestVerifier, 
 
 	if !proto.Equal(metadataInBlock, metadataFromProposal) {
 		return nil, errors.Errorf("expected metadata in block to be %v but got %v", metadataFromProposal, metadataInBlock)
+	}
+
+	return validateTransactions(block.Data.Data, verifyReq)
+}
+
+func validateTransactions(blockData [][]byte, verifyReq requestVerifier) ([]types.RequestInfo, error) {
+	var validationFinished sync.WaitGroup
+	validationFinished.Add(len(blockData))
+
+	type txnValidation struct {
+		indexInBlock  int
+		extractedInfo types.RequestInfo
+		validationErr error
+	}
+
+	validations := make(chan txnValidation, len(blockData))
+	for i, payload := range blockData {
+		go func(indexInBlock int, payload []byte) {
+			defer validationFinished.Done()
+			reqInfo, err := verifyReq(payload)
+			validations <- txnValidation{
+				indexInBlock:  indexInBlock,
+				extractedInfo: reqInfo,
+				validationErr: err,
+			}
+		}(i, payload)
+	}
+
+	validationFinished.Wait()
+	close(validations)
+
+	indexToRequestInfo := make(map[int]types.RequestInfo)
+	for validationResult := range validations {
+		indexToRequestInfo[validationResult.indexInBlock] = validationResult.extractedInfo
+		if validationResult.validationErr != nil {
+			return nil, validationResult.validationErr
+		}
+	}
+
+	var res []types.RequestInfo
+	for indexInBlock := range blockData {
+		res = append(res, indexToRequestInfo[indexInBlock])
 	}
 
 	return res, nil
