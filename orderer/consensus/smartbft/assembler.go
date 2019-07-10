@@ -140,8 +140,7 @@ func (bbt *ByteBufferTuple) ToBytes() []byte {
 	return bytes
 }
 
-func (bbt *ByteBufferTuple) FromBytes(bytes []byte) {
-	if _, err := asn1.Unmarshal(bytes, bbt); err != nil {
-		panic(err)
-	}
+func (bbt *ByteBufferTuple) FromBytes(bytes []byte) error {
+	_, err := asn1.Unmarshal(bytes, bbt)
+	return err
 }

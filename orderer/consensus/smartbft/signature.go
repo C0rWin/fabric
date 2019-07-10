@@ -49,10 +49,16 @@ func proposalToBlock(proposal types.Proposal) (*common.Block, error) {
 	if err := proto.Unmarshal(proposal.Header, block.Header); err != nil {
 		return nil, errors.Wrap(err, "bad header")
 	}
-	if err := proto.Unmarshal(proposal.Payload, block.Data); err != nil {
+
+	tuple := ByteBufferTuple{}
+	if err := tuple.FromBytes(proposal.Payload); err != nil {
+		return nil, errors.Wrap(err, "bad payload and metadata tuple")
+	}
+
+	if err := proto.Unmarshal(tuple.A, block.Data); err != nil {
 		return nil, errors.Wrap(err, "bad payload")
 	}
-	if err := proto.Unmarshal(proposal.Metadata, block.Metadata); err != nil {
+	if err := proto.Unmarshal(tuple.B, block.Metadata); err != nil {
 		return nil, errors.Wrap(err, "bad metadata")
 	}
 	return block, nil
