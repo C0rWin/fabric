@@ -14,14 +14,13 @@ import (
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/protos/common"
-	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 )
 
 type Signature struct {
 	ConsenterMetadata    []byte
-	SignatureHeader      *common.SignatureHeader
-	BlockHeader          *common.BlockHeader
+	SignatureHeader      []byte
+	BlockHeader          []byte
 	OrdererBlockMetadata []byte
 }
 
@@ -39,18 +38,30 @@ func (sig *Signature) Marshal() []byte {
 }
 
 func (sig Signature) AsBytes(signer identity.Signer) []byte {
-	sigHdr := protoutil.MarshalOrPanic(sig.SignatureHeader)
-	msg2Sign := util.ConcatenateBytes(sig.OrdererBlockMetadata, sigHdr, protoutil.BlockHeaderBytes(sig.BlockHeader))
+	msg2Sign := util.ConcatenateBytes(sig.OrdererBlockMetadata, sig.SignatureHeader, sig.BlockHeader)
 	return msg2Sign
 }
 
-func proposalToBlock(proposal types.Proposal) (*common.Block, error) {
-	block := &common.Block{}
+func ProposalToBlock(proposal types.Proposal) (*common.Block, error) {
+	// initialize block with empty fields
+	block := &common.Block{
+		Header:   &common.BlockHeader{},
+		Data:     &common.BlockData{},
+		Metadata: &common.BlockMetadata{},
+	}
+
+	if len(proposal.Header) == 0 {
+		return nil, errors.New("proposal header cannot be nil")
+	}
 	if err := proto.Unmarshal(proposal.Header, block.Header); err != nil {
 		return nil, errors.Wrap(err, "bad header")
 	}
 
-	tuple := ByteBufferTuple{}
+	if len(proposal.Payload) == 0 {
+		return nil, errors.New("proposal payload cannot be nil")
+	}
+
+	tuple := &ByteBufferTuple{}
 	if err := tuple.FromBytes(proposal.Payload); err != nil {
 		return nil, errors.Wrap(err, "bad payload and metadata tuple")
 	}
@@ -58,6 +69,7 @@ func proposalToBlock(proposal types.Proposal) (*common.Block, error) {
 	if err := proto.Unmarshal(tuple.A, block.Data); err != nil {
 		return nil, errors.Wrap(err, "bad payload")
 	}
+
 	if err := proto.Unmarshal(tuple.B, block.Metadata); err != nil {
 		return nil, errors.Wrap(err, "bad metadata")
 	}

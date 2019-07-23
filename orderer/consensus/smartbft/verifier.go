@@ -41,7 +41,7 @@ type requestVerifier func(req []byte) (types.RequestInfo, error)
 type NodeIdentitiesByID map[uint64][]byte
 
 type Verifier struct {
-	ReqInspector          RequestInspector
+	ReqInspector          *RequestInspector
 	Id2Identity           NodeIdentitiesByID
 	BlockVerifier         BlockVerifier
 	AccessController      AccessController
@@ -49,16 +49,17 @@ type Verifier struct {
 	Logger                PanicLogger
 }
 
-func (v *Verifier) VerifyProposal(proposal types.Proposal, prevHeader []byte) ([]types.RequestInfo, error) {
-	block, err := proposalToBlock(proposal)
+func (v *Verifier) VerifyProposal(proposal types.Proposal) ([]types.RequestInfo, error) {
+	block, err := ProposalToBlock(proposal)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := verifyBlockHeader(block, prevHeader, v.Logger); err != nil {
-		return nil, err
-	}
-
+	// TODO: Put header verification once we hash chain in place
+	/*	if err := verifyBlockHeader(block, prevHeader, v.Logger); err != nil {
+			return nil, err
+		}
+	*/
 	requests, err := verifyBlockDataAndMetadata(block, v.VerifyRequest, v.VerificationSequence(), proposal.Metadata)
 	if err != nil {
 		return nil, err
@@ -93,8 +94,7 @@ func (v *Verifier) VerifyConsenterSig(signature types.Signature, prop types.Prop
 	sig := &Signature{}
 	sig.Unmarshal(signature.Msg)
 
-	sigHdr := protoutil.MarshalOrPanic(sig.SignatureHeader)
-	expectedMsgToBeSigned := util.ConcatenateBytes(sig.OrdererBlockMetadata, sigHdr, protoutil.BlockHeaderBytes(sig.BlockHeader))
+	expectedMsgToBeSigned := util.ConcatenateBytes(sig.OrdererBlockMetadata, sig.SignatureHeader, sig.BlockHeader)
 	return v.BlockVerifier.VerifyBlockSignature([]*protoutil.SignedData{{
 		Signature: signature.Value,
 		Data:      expectedMsgToBeSigned,

@@ -1293,6 +1293,16 @@ func (n *Network) ReservePort() uint16 {
 	return n.StartPort - 1
 }
 
+// OrdererIndex returns next int value
+func (n *Network) OrdererIndex(orderer *Orderer) int {
+	for i, o := range n.Orderers {
+		if orderer == o {
+			return i
+		}
+	}
+	return -1
+}
+
 type PortName string
 type Ports map[PortName]uint16
 

@@ -653,7 +653,7 @@ func initializeMultichannelRegistrar(
 			{
 				// TODO: Add full initialization with required parameters. Consider to abstract out common pieces of Etcd Raft and
 				// BFT Smart to reuse them.
-				consenters["smartbft"] = smartbft.New()
+				consenters["smartbft"] = smartbft.New(signer, clusterDialer, conf, srvConf, srv, registrar, metricsProvider)
 			}
 		default:
 			logger.Panicf("Unknown cluster type consenter")
