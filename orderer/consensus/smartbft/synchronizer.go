@@ -20,14 +20,14 @@ import (
 type Synchronizer struct {
 	support     consensus.ConsenterSupport
 	blockPuller BlockPuller
-	clusterSize uint64
+	clusterSize uint
 	logger      *flogging.FabricLogger
 }
 
 func NewSynchronizer(
 	support consensus.ConsenterSupport,
 	blockPuller BlockPuller,
-	clusterSize uint64,
+	clusterSize uint,
 	logger *flogging.FabricLogger,
 ) (*Synchronizer, error) {
 	s := &Synchronizer{
@@ -110,12 +110,12 @@ func (s *Synchronizer) synchronize() (smartbftprotos.ViewMetadata, uint64, error
 //
 // heights: a slice containing the heights of accessible peers, length must be >0.
 // clusterSize: the cluster size, must be >0.
-func (s *Synchronizer) computeTargetHeight(heights []uint64, clusterSize uint64) uint64 {
-	sort.Slice(heights, func(i, j int) bool { return heights[i] > heights[j] }) // Descending
-	bftF := (clusterSize - 1) / 3                                               // The number of tolerated byzantine faults
+func (s *Synchronizer) computeTargetHeight(heights []uint64, clusterSize uint) uint64 {
+	sort.Slice(heights, func(i, j int) bool { return heights[i] > heights[j] }) //Descending
+	bftF := (clusterSize - 1) / 3                                               //The number of tolerated byzantine faults
 	lenH := len(heights)
 
-	if uint64(lenH) < bftF+1 {
+	if uint(lenH) < bftF+1 {
 		return heights[lenH-1]
 	}
 	return heights[bftF]

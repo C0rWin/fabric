@@ -26,12 +26,8 @@ type Signature struct {
 }
 
 type RequestInfo struct {
-	ClientID string
 	ID       string
-}
-
-func (r *RequestInfo) String() string {
-	return r.ClientID + ":" + r.ID
+	ClientID string
 }
 
 func (p Proposal) Digest() string {

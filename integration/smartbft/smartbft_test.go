@@ -63,34 +63,12 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			network.GenerateConfigTree()
 			network.Bootstrap()
 
-			ordererRunner := network.NetworkGroupRunner()
-			networkProcess = ifrit.Invoke(ordererRunner)
+			networkRunner := network.NetworkGroupRunner()
+			networkProcess = ifrit.Invoke(networkRunner)
 			Eventually(networkProcess.Ready(), network.EventuallyTimeout).Should(BeClosed())
 
 			orderer := network.Orderer("orderer")
-			peer := network.Peer("Org1", "peer0")
-			network.CreateChannel("testchannel", orderer, peer)
-		})
-
-		It("smartbft multiple nodes", func() {
-			network = nwo.New(nwo.MultiNodeSmartBFT(), testDir, client, StartPort(), components)
-			network.GenerateConfigTree()
-			network.Bootstrap()
-
-			ordererRunner := network.NetworkGroupRunner()
-			networkProcess = ifrit.Invoke(ordererRunner)
-			Eventually(networkProcess.Ready(), network.EventuallyTimeout).Should(BeClosed())
-
-			orderer := network.Orderer("orderer1")
 			network.CreateAndJoinChannel(orderer, "testchannel1")
-
-			nwo.DeployChaincode(network, "testchannel", orderer, nwo.Chaincode{
-				Name:              "mycc",
-				Version:           "0.0",
-				Path:              "github.com/hyperledger/fabric/integration/chaincode/keylevelep/cmd",
-				Ctor:              `{"Args":["init"]}`,
-				CollectionsConfig: "testdata/collection_config.json",
-			})
 		})
 	})
 })

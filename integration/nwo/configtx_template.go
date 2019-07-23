@@ -103,7 +103,6 @@ Profiles:{{ range .Profiles }}
           ServerTLSCert: {{ $w.OrdererLocalCryptoDir . "tls" }}/server.crt
           MSPID: {{ $w.OrdererMSPID . }}
           Identity: {{ $w.OrdererCert . }}
-          ConsenterId: {{ $w.OrdererIndex . }}
         {{- end }}{{- end }}
       {{- end }}
       Organizations:{{ range $w.OrgsForOrderers .Orderers }}

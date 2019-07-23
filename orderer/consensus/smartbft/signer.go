@@ -28,13 +28,13 @@ func (s *Signer) Sign(msg []byte) []byte {
 }
 
 func (s *Signer) SignProposal(proposal types.Proposal) *types.Signature {
-	block, err := ProposalToBlock(proposal)
+	block, err := proposalToBlock(proposal)
 	if err != nil {
 		s.Logger.Panicf("Tried to sign bad proposal: %v", err)
 	}
 	sig := Signature{
-		BlockHeader:     protoutil.BlockHeaderBytes(block.Header),
-		SignatureHeader: protoutil.MarshalOrPanic(protoutil.NewSignatureHeaderOrPanic(s.SignerSerializer)),
+		BlockHeader:     block.Header,
+		SignatureHeader: protoutil.NewSignatureHeaderOrPanic(s.SignerSerializer),
 		OrdererBlockMetadata: protoutil.MarshalOrPanic(&common.OrdererBlockMetadata{
 			LastConfig:        &common.LastConfig{Index: uint64(proposal.VerificationSequence)},
 			ConsenterMetadata: block.Metadata.Metadata[common.BlockMetadataIndex_ORDERER],
