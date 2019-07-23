@@ -76,15 +76,18 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:94da3701911e5abd830496b6e6025e8b1eaccdf28f3c927886d49756f9901649"
+  digest = "1:7e090f9d517fe041f58906939ad355ff43181499c870ab4f593b7097a2a6fa8b"
   name = "github.com/SmartBFT-Go/consensus"
   packages = [
+    "internal/bft",
     "pkg/api",
+    "pkg/consensus",
     "pkg/types",
+    "pkg/wal",
     "smartbftprotos",
   ]
   pruneopts = "NUT"
-  revision = "df8e1cb97737cf8679613ffdd64570229173e5f4"
+  revision = "1f5ba1f15712deeeeb97f9c34f677c8f2c421d4e"
 
 [[projects]]
   branch = "master"
@@ -843,6 +846,14 @@
 
 [[projects]]
   branch = "master"
+  digest = "1:382bb5a7fb4034db3b6a2d19e5a4a6bcf52f4750530603c01ca18a172fa3089b"
+  name = "golang.org/x/sync"
+  packages = ["semaphore"]
+  pruneopts = "NUT"
+  revision = "112230192c580c3556b8cee6403af37a4fc5f28c"
+
+[[projects]]
+  branch = "master"
   digest = "1:350f28d134b67933bc03a4febafa6eb9888e50bc4862372353dc3f0d9e9b8fe2"
   name = "golang.org/x/sys"
   packages = [
@@ -1013,8 +1024,9 @@
     "github.com/Knetic/govaluate",
     "github.com/Shopify/sarama",
     "github.com/Shopify/sarama/mocks",
-    "github.com/SmartBFT-Go/consensus/pkg/api",
+    "github.com/SmartBFT-Go/consensus/pkg/consensus",
     "github.com/SmartBFT-Go/consensus/pkg/types",
+    "github.com/SmartBFT-Go/consensus/pkg/wal",
     "github.com/SmartBFT-Go/consensus/smartbftprotos",
     "github.com/davecgh/go-spew/spew",
     "github.com/fsouza/go-dockerclient",

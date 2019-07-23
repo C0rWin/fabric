@@ -27,13 +27,6 @@ import (
 
 //go:generate counterfeiter -o mocks/mock_blockpuller.go . BlockPuller
 
-// BlockPuller is used to pull blocks from other OSN
-type BlockPuller interface {
-	PullBlock(seq uint64) *common.Block
-	HeightsByEndpoints() (map[string]uint64, error)
-	Close()
-}
-
 // newBlockPuller creates a new block puller
 func newBlockPuller(
 	support consensus.ConsenterSupport,
@@ -91,6 +84,7 @@ func getViewMetadataLastConfigSqnFromBlock(block *common.Block) (smartbftprotos.
 	return viewMetadata, sqn
 }
 
+// RequestInspector inspects incomming requests and validates serialized identity
 type RequestInspector struct {
 	ValidateIdentityStructure func(identity *msp.SerializedIdentity) error
 }

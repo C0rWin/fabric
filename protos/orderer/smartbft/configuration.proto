@@ -22,7 +22,7 @@ message ConfigMetadata {
 
 // Consenter represents a consenting node (i.e. replica).
 message Consenter {
-    uint32 consenter_id = 1;
+    uint64 consenter_id = 1;
     string host = 2;
     uint32 port = 3;
     string msp_id = 4;

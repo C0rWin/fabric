@@ -15,8 +15,9 @@ type Application interface {
 }
 
 type Comm interface {
-	Broadcast(m *protos.Message) // broadcast message to others (not including yourself)
-	Send(targetID uint64, message *protos.Message)
+	BroadcastConsensus(m *protos.Message) // broadcast message to others (not including yourself)
+	SendConsensus(targetID uint64, m *protos.Message)
+	SendTransaction(targetID uint64, request []byte)
 }
 
 type Assembler interface {
@@ -24,9 +25,8 @@ type Assembler interface {
 }
 
 type WriteAheadLog interface {
-	Append(entry []byte)
-	Read() [][]byte
-	Truncate()
+	Append(entry []byte, truncateTo bool) error
+	ReadAll() ([][]byte, error)
 }
 
 type Signer interface {
@@ -35,8 +35,8 @@ type Signer interface {
 }
 
 type Verifier interface {
-	VerifyProposal(proposal bft.Proposal, prevHeader []byte) error
-	VerifyRequest(val []byte) error
+	VerifyProposal(proposal bft.Proposal) ([]bft.RequestInfo, error)
+	VerifyRequest(val []byte) (bft.RequestInfo, error)
 	VerifyConsenterSig(signature bft.Signature, prop bft.Proposal) error
 	VerificationSequence() uint64
 }
