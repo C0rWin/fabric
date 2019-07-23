@@ -153,7 +153,7 @@ func verifyBlockDataAndMetadata(block *common.Block, verifyReq requestVerifier, 
 	}
 
 	metadataFromProposal := &smartbftprotos.ViewMetadata{}
-	if err := proto.Unmarshal(metadata, metadataInBlock); err != nil {
+	if err := proto.Unmarshal(metadata, metadataFromProposal); err != nil {
 		return nil, errors.Wrap(err, "failed unmarshaling smartbft metadata from proposal")
 	}
 
