@@ -31,6 +31,7 @@ type Batcher interface {
 	BatchRemainder(remainder [][]byte)
 	PopRemainder() [][]byte
 	Close()
+	Reset()
 }
 
 //go:generate mockery -dir . -name RequestPool -case underscore -output ./mocks/
@@ -219,6 +220,7 @@ func (c *Controller) changeView(newViewNumber uint64, newProposalSequence uint64
 
 	// If I'm the leader, I can claim the leader token.
 	if iAm, _ := c.iAmTheLeader(); iAm {
+		c.Batcher.Reset()
 		c.acquireLeaderToken()
 	}
 }
@@ -226,6 +228,7 @@ func (c *Controller) changeView(newViewNumber uint64, newProposalSequence uint64
 // ViewChanged makes the controller abort the current view and start a new one with the given numbers
 func (c *Controller) ViewChanged(newViewNumber uint64, newProposalSequence uint64) {
 	c.viewChange <- viewInfo{proposalSeq: newProposalSequence, viewNumber: newViewNumber}
+	c.Batcher.Close()
 }
 
 func (c *Controller) getNextBatch() [][]byte {
@@ -272,6 +275,7 @@ func (c *Controller) run() {
 		select {
 		case d := <-c.decisionChan:
 			c.deliverToApplication(d)
+			c.decisionChan <- d
 			c.maybePruneRevokedRequests()
 			if iAm, _ := c.iAmTheLeader(); iAm {
 				c.acquireLeaderToken()
@@ -385,6 +389,7 @@ func (c *Controller) Decide(proposal types.Proposal, signatures []types.Signatur
 		requests:   requests,
 		signatures: signatures,
 	}
+	<-c.decisionChan
 }
 
 func (c *Controller) deliverToApplication(d decision) {
@@ -395,7 +400,6 @@ func (c *Controller) deliverToApplication(d decision) {
 		if err := c.RequestPool.RemoveRequest(reqInfo); err != nil {
 			c.Logger.Warnf("Error during remove of request %s from the pool : %s", reqInfo, err)
 		}
-		// TODO stop and remove the associated timer from the timeout-collection
 	}
 }
 
