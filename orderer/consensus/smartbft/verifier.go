@@ -46,7 +46,6 @@ type Verifier struct {
 	AccessController       AccessController
 	VerificationSequencer  Sequencer
 	Logger                 PanicLogger
-	Ledger                 Ledger
 	LastCommittedBlockHash string
 }
 
