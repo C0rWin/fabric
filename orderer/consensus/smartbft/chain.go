@@ -7,10 +7,9 @@ SPDX-License-Identifier: Apache-2.0
 package smartbft
 
 import (
+	"encoding/hex"
 	"fmt"
 	"time"
-
-	"encoding/hex"
 
 	consensus2 "github.com/SmartBFT-Go/consensus/pkg/consensus"
 	"github.com/SmartBFT-Go/consensus/pkg/types"

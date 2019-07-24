@@ -8,7 +8,6 @@ package smartbft
 
 import (
 	"encoding/hex"
-
 	"sync"
 
 	"github.com/SmartBFT-Go/consensus/pkg/types"
