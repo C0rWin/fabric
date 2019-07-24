@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"time"
 
+	"encoding/hex"
+
 	consensus2 "github.com/SmartBFT-Go/consensus/pkg/consensus"
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	"github.com/SmartBFT-Go/consensus/pkg/wal"
@@ -50,6 +52,7 @@ type BFTChain struct {
 	RemoteNodes      []cluster.RemoteNode
 	ID2Identities    NodeIdentitiesByID
 	support          consensus.ConsenterSupport
+	verifier         *Verifier
 }
 
 func (c *BFTChain) HandleMessage(sender uint64, m *smartbftprotos.Message) {
@@ -95,6 +98,7 @@ func (c *BFTChain) Deliver(proposal types.Proposal, signatures []types.Signature
 		return
 	}
 	c.support.WriteBlock(block, nil)
+	c.verifier.LastCommittedBlockHash = hex.EncodeToString(protoutil.BlockHeaderHash(block.Header))
 }
 
 func (c *BFTChain) Order(env *common.Envelope, configSeq uint64) error {
@@ -159,29 +163,34 @@ func (c *BFTChain) Start() {
 		nodes = append(nodes, n.ID)
 	}
 
+	c.verifier = &Verifier{
+		VerificationSequencer: c.support,
+		ReqInspector:          requestInspector,
+		Logger:                flogging.MustGetLogger("orderer.consensus.smartbft.verifier"),
+		Id2Identity:           c.ID2Identities,
+		BlockVerifier: &cluster.BlockValidationPolicyVerifier{
+			Logger:    flogging.MustGetLogger("orderer.consensus.smartbft.verifier.block"),
+			Channel:   c.support.ChainID(),
+			PolicyMgr: c.PolicyManager,
+		},
+		AccessController: &chainACL{
+			policyManager: c.PolicyManager,
+			Logger:        c.Logger,
+		},
+	}
+
+	if c.verifier.LastCommittedBlockHash == "" {
+		lastBlock := lastBlockFromLedgerOrPanic(c.support, c.Logger)
+		c.verifier.LastCommittedBlockHash = hex.EncodeToString(protoutil.BlockHeaderHash(lastBlock.Header))
+	}
+
 	c.Consensus = &consensus2.Consensus{
 		SelfID:       c.SelfID,
 		N:            clusterSize,
 		BatchSize:    1,
 		BatchTimeout: 5 * time.Second,
 		Logger:       flogging.MustGetLogger("orderer.consensus.smartbft.consensus"),
-		// Initialize verifier
-		Verifier: &Verifier{
-			VerificationSequencer: c.support,
-			ReqInspector:          requestInspector,
-			Logger:                flogging.MustGetLogger("orderer.consensus.smartbft.verifier"),
-			Id2Identity:           c.ID2Identities,
-			BlockVerifier: &cluster.BlockValidationPolicyVerifier{
-				Logger:    flogging.MustGetLogger("orderer.consensus.smartbft.verifier.block"),
-				Channel:   c.support.ChainID(),
-				PolicyMgr: c.PolicyManager,
-			},
-			AccessController: &chainACL{
-				policyManager: c.PolicyManager,
-				Logger:        c.Logger,
-			},
-		},
-		// Initialize signer
+		Verifier:     c.verifier,
 		Signer: &Signer{
 			ID:               c.SelfID,
 			Logger:           flogging.MustGetLogger("orderer.consensus.smartbft.signer"),
@@ -195,14 +204,12 @@ func (c *BFTChain) Start() {
 			Ledger: c.support,
 		},
 		RequestInspector: requestInspector,
-		// Initialize synchronizer
 		Synchronizer: &Synchronizer{
 			support:     c.support,
 			clusterSize: clusterSize,
 			logger:      flogging.MustGetLogger("orderer.consensus.smartbft.synchronizer"),
 			blockPuller: c.BlockPuller,
 		},
-		// Initialize egress communication
 		Comm: &Egress{
 			Channel: c.support.ChainID(),
 			Logger:  flogging.MustGetLogger("orderer.consensus.smartbft.egress"),

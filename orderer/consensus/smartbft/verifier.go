@@ -41,12 +41,14 @@ type requestVerifier func(req []byte) (types.RequestInfo, error)
 type NodeIdentitiesByID map[uint64][]byte
 
 type Verifier struct {
-	ReqInspector          *RequestInspector
-	Id2Identity           NodeIdentitiesByID
-	BlockVerifier         BlockVerifier
-	AccessController      AccessController
-	VerificationSequencer Sequencer
-	Logger                PanicLogger
+	ReqInspector           *RequestInspector
+	Id2Identity            NodeIdentitiesByID
+	BlockVerifier          BlockVerifier
+	AccessController       AccessController
+	VerificationSequencer  Sequencer
+	Logger                 PanicLogger
+	Ledger                 Ledger
+	LastCommittedBlockHash string
 }
 
 func (v *Verifier) VerifyProposal(proposal types.Proposal) ([]types.RequestInfo, error) {
@@ -55,11 +57,10 @@ func (v *Verifier) VerifyProposal(proposal types.Proposal) ([]types.RequestInfo,
 		return nil, err
 	}
 
-	// TODO: Put header verification once we hash chain in place
-	/*	if err := verifyBlockHeader(block, prevHeader, v.Logger); err != nil {
-			return nil, err
-		}
-	*/
+	if err := verifyHashChain(block, v.LastCommittedBlockHash); err != nil {
+		return nil, err
+	}
+
 	requests, err := verifyBlockDataAndMetadata(block, v.VerifyRequest, v.VerificationSequence(), proposal.Metadata)
 	if err != nil {
 		return nil, err
@@ -106,19 +107,10 @@ func (v *Verifier) VerificationSequence() uint64 {
 	return v.VerificationSequencer.Sequence()
 }
 
-func verifyBlockHeader(block *common.Block, prevHeader []byte, logger PanicLogger) error {
-	prevHdr := &common.BlockHeader{}
-	if err := proto.Unmarshal(prevHeader, prevHdr); err != nil {
-		logger.Panicf("Previous header is malformed: %v", err)
-	}
-	if block.Header == nil {
-		return errors.Errorf("nil block header")
-	}
-
-	prevHdrHash := hex.EncodeToString(protoutil.BlockHeaderHash(prevHdr))
+func verifyHashChain(block *common.Block, prevHeaderHash string) error {
 	thisHdrHashOfPrevHdr := hex.EncodeToString(block.Header.PreviousHash)
-	if prevHdrHash != thisHdrHashOfPrevHdr {
-		return errors.Errorf("previous header hash is %s but expected %s", thisHdrHashOfPrevHdr, prevHdrHash)
+	if prevHeaderHash != thisHdrHashOfPrevHdr {
+		return errors.Errorf("previous header hash is %s but expected %s", thisHdrHashOfPrevHdr, prevHeaderHash)
 	}
 
 	dataHash := hex.EncodeToString(block.Header.DataHash)
