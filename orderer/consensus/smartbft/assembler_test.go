@@ -129,7 +129,15 @@ func makeConfigBlock(seq uint64) *common.Block {
 			Number: seq,
 		},
 		Data: &common.BlockData{
-			Data: [][]byte{configTx},
+			Data: [][]byte{protoutil.MarshalOrPanic(&common.Envelope{
+				Payload: protoutil.MarshalOrPanic(&common.Payload{
+					Data: protoutil.MarshalOrPanic(&common.ConfigEnvelope{
+						Config: &common.Config{
+							Sequence: 10,
+						},
+					}),
+				}),
+			})},
 		},
 		Metadata: &common.BlockMetadata{
 			Metadata: [][]byte{{},
