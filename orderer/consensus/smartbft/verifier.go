@@ -13,6 +13,7 @@ import (
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	"github.com/SmartBFT-Go/consensus/smartbftprotos"
 	"github.com/golang/protobuf/proto"
+	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protoutil"
@@ -45,8 +46,9 @@ type Verifier struct {
 	BlockVerifier          BlockVerifier
 	AccessController       AccessController
 	VerificationSequencer  Sequencer
-	Logger                 PanicLogger
+	Ledger                 Ledger
 	LastCommittedBlockHash string
+	Logger                 *flogging.FabricLogger
 }
 
 func (v *Verifier) VerifyProposal(proposal types.Proposal) ([]types.RequestInfo, error) {
@@ -59,7 +61,7 @@ func (v *Verifier) VerifyProposal(proposal types.Proposal) ([]types.RequestInfo,
 		return nil, err
 	}
 
-	requests, err := verifyBlockDataAndMetadata(block, v.VerifyRequest, v.VerificationSequence(), proposal.Metadata)
+	requests, err := v.verifyBlockDataAndMetadata(block, proposal.Metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +121,7 @@ func verifyHashChain(block *common.Block, prevHeaderHash string) error {
 	return nil
 }
 
-func verifyBlockDataAndMetadata(block *common.Block, verifyReq requestVerifier, verificationSeq uint64, metadata []byte) ([]types.RequestInfo, error) {
+func (v *Verifier) verifyBlockDataAndMetadata(block *common.Block, metadata []byte) ([]types.RequestInfo, error) {
 	if block.Data == nil || len(block.Data.Data) == 0 {
 		return nil, errors.New("empty block data")
 	}
@@ -133,8 +135,14 @@ func verifyBlockDataAndMetadata(block *common.Block, verifyReq requestVerifier, 
 		return nil, errors.Wrap(err, "could not fetch last config from block")
 	}
 
-	if verificationSeq != lastConfig {
-		return nil, errors.Errorf("last config in proposal is %d, expecting %d", lastConfig, verificationSeq)
+	configBlock := v.Ledger.Block(lastConfig)
+	configEnvelope, err := ConfigurationEnvelop(configBlock)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal configuration payload")
+	}
+
+	if v.VerificationSequence() != configEnvelope.Config.Sequence {
+		return nil, errors.Errorf("last config in proposal is %d, expecting %d", configEnvelope.Config.Sequence, v.VerificationSequence())
 	}
 
 	metadataInBlock := &smartbftprotos.ViewMetadata{}
@@ -151,7 +159,7 @@ func verifyBlockDataAndMetadata(block *common.Block, verifyReq requestVerifier, 
 		return nil, errors.Errorf("expected metadata in block to be %v but got %v", metadataFromProposal, metadataInBlock)
 	}
 
-	return validateTransactions(block.Data.Data, verifyReq)
+	return validateTransactions(block.Data.Data, v.VerifyRequest)
 }
 
 func validateTransactions(blockData [][]byte, verifyReq requestVerifier) ([]types.RequestInfo, error) {

@@ -176,6 +176,7 @@ func (c *BFTChain) Start() {
 			policyManager: c.PolicyManager,
 			Logger:        c.Logger,
 		},
+		Ledger: c.support,
 	}
 
 	if c.verifier.LastCommittedBlockHash == "" {

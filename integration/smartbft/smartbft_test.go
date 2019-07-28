@@ -16,8 +16,11 @@ import (
 
 	docker "github.com/fsouza/go-dockerclient"
 	"github.com/hyperledger/fabric/integration/nwo"
+	"github.com/hyperledger/fabric/integration/nwo/commands"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/gbytes"
+	"github.com/onsi/gomega/gexec"
 	"github.com/tedsuo/ifrit"
 )
 
@@ -81,16 +84,52 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			networkProcess = ifrit.Invoke(ordererRunner)
 			Eventually(networkProcess.Ready(), network.EventuallyTimeout).Should(BeClosed())
 
+			channel := "testchannel1"
 			orderer := network.Orderer("orderer1")
-			network.CreateAndJoinChannel(orderer, "testchannel1")
+			network.CreateAndJoinChannel(orderer, channel)
 
-			nwo.DeployChaincode(network, "testchannel", orderer, nwo.Chaincode{
-				Name:              "mycc",
-				Version:           "0.0",
-				Path:              "github.com/hyperledger/fabric/integration/chaincode/keylevelep/cmd",
-				Ctor:              `{"Args":["init"]}`,
-				CollectionsConfig: "testdata/collection_config.json",
+			nwo.DeployChaincode(network, channel, orderer, nwo.Chaincode{
+				Name:    "mycc",
+				Version: "0.0",
+				Path:    "github.com/hyperledger/fabric/integration/chaincode/simple/cmd",
+				Ctor:    `{"Args":["init","a","100","b","200"]}`,
+				Policy:  `AND ('Org1MSP.member','Org2MSP.member')`,
 			})
+
+			By("querying the chaincode")
+			peer := network.Peer("Org1", "peer0")
+			sess, err := network.PeerUserSession(peer, "User1", commands.ChaincodeQuery{
+				ChannelID: channel,
+				Name:      "mycc",
+				Ctor:      `{"Args":["query","a"]}`,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(0))
+			Expect(sess).To(gbytes.Say("100"))
+
+			sess, err = network.PeerUserSession(peer, "User1", commands.ChaincodeInvoke{
+				ChannelID: channel,
+				Orderer:   network.OrdererAddress(orderer, nwo.ListenPort),
+				Name:      "mycc",
+				Ctor:      `{"Args":["invoke","a","b","10"]}`,
+				PeerAddresses: []string{
+					network.PeerAddress(network.Peer("Org1", "peer0"), nwo.ListenPort),
+					network.PeerAddress(network.Peer("Org2", "peer1"), nwo.ListenPort),
+				},
+				WaitForEvent: true,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(0))
+			Expect(sess.Err).To(gbytes.Say("Chaincode invoke successful. result: status:200"))
+
+			sess, err = network.PeerUserSession(peer, "User1", commands.ChaincodeQuery{
+				ChannelID: channel,
+				Name:      "mycc",
+				Ctor:      `{"Args":["query","a"]}`,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(0))
+			Expect(sess).To(gbytes.Say("90"))
 		})
 	})
 })

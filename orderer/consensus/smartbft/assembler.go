@@ -55,11 +55,17 @@ func (a *Assembler) AssembleProposal(metadata []byte, requests [][]byte) (nextPr
 		A: protoutil.MarshalOrPanic(block.Data),
 		B: protoutil.MarshalOrPanic(block.Metadata),
 	}
+
+	configEnvelope, err := ConfigurationEnvelop(lastConfigBlock)
+	if err != nil {
+		a.Logger.Panicf("Failed to extract configuration envelope of last config block,err %s", err)
+	}
+
 	prop := types.Proposal{
 		Header:               protoutil.MarshalOrPanic(block.Header),
 		Payload:              tuple.ToBytes(),
 		Metadata:             metadata,
-		VerificationSequence: int64(lastConfigBlock.Header.Number),
+		VerificationSequence: int64(configEnvelope.Config.Sequence),
 	}
 
 	return prop, requests[len(batchedRequests):]

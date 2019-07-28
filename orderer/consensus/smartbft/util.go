@@ -14,6 +14,7 @@ import (
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	"github.com/SmartBFT-Go/consensus/smartbftprotos"
 	"github.com/golang/protobuf/proto"
+	"github.com/hyperledger/fabric/common/configtx"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/orderer/common/localconfig"
@@ -150,4 +151,23 @@ func (ri *RequestInspector) unwrapReq(req []byte) (*request, error) {
 		sigHdr:   sigHdr,
 		envelope: envelope,
 	}, nil
+}
+
+// ConfigurationEnvelop extract configuration envelop
+func ConfigurationEnvelop(configBlock *common.Block) (*common.ConfigEnvelope, error) {
+	envelopeConfig, err := protoutil.ExtractEnvelope(configBlock, 0)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to extract envelop from block")
+	}
+
+	payload, err := protoutil.UnmarshalPayload(envelopeConfig.Payload)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal envelop payload")
+	}
+
+	configEnvelope, err := configtx.UnmarshalConfigEnvelope(payload.Data)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal configuration payload")
+	}
+	return configEnvelope, nil
 }
