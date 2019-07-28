@@ -118,7 +118,7 @@ func (c *Consenter) ReceiverByChain(channelID string) MessageReceiver {
 	if smartBFTChain, isBFTSmart := cs.Chain.(*BFTChain); isBFTSmart {
 		return smartBFTChain
 	}
-	c.Logger.Warningf("Chain %s is of type %v and not etcdraft.Chain", channelID, reflect.TypeOf(cs.Chain))
+	c.Logger.Warningf("Chain %s is of type %v and not smartbft.Chain", channelID, reflect.TypeOf(cs.Chain))
 	return nil
 }
 
