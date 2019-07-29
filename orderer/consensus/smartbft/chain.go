@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"time"
 
-	consensus2 "github.com/SmartBFT-Go/consensus/pkg/consensus"
+	smartbft "github.com/SmartBFT-Go/consensus/pkg/consensus"
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	"github.com/SmartBFT-Go/consensus/pkg/wal"
 	"github.com/SmartBFT-Go/consensus/smartbftprotos"
@@ -43,7 +43,7 @@ type BlockPuller interface {
 type BFTChain struct {
 	SelfID           uint64
 	Logger           *flogging.FabricLogger
-	Consensus        *consensus2.Consensus
+	Consensus        *smartbft.Consensus
 	BlockPuller      BlockPuller
 	Comm             cluster.Communicator
 	SignerSerializer identity.SignerSerializer
@@ -184,7 +184,7 @@ func (c *BFTChain) Start() {
 		c.verifier.LastCommittedBlockHash = hex.EncodeToString(protoutil.BlockHeaderHash(lastBlock.Header))
 	}
 
-	c.Consensus = &consensus2.Consensus{
+	c.Consensus = &smartbft.Consensus{
 		SelfID:       c.SelfID,
 		N:            clusterSize,
 		BatchSize:    1,
