@@ -76,7 +76,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:b17a4edf5e3d2d11fe29a91badd214e113fa8101e137a78f2b607c4c87a076bb"
+  digest = "1:8612118ce096b4ecd33902e04e2cc92e6739c7fbf6a231cfd5e726f8e0adef14"
   name = "github.com/SmartBFT-Go/consensus"
   packages = [
     "internal/bft",
@@ -87,7 +87,7 @@
     "smartbftprotos",
   ]
   pruneopts = "NUT"
-  revision = "b7b576a56baf6f07223096ff6d1bbdf571b191bb"
+  revision = "dab600e60a245200894a3f37d17c329fd4bef823"
 
 [[projects]]
   branch = "master"

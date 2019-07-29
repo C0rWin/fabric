@@ -220,7 +220,6 @@ func (c *BFTChain) Start() {
 				Comm:          c.Comm,
 				Timeout:       5 * time.Minute, // Externalize configuration
 			},
-			Nodes: nodes,
 		},
 	}
 

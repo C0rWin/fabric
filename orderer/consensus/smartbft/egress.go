@@ -27,15 +27,13 @@ type PanicLogger interface {
 
 type Egress struct {
 	Channel string
-	Nodes   []uint64
 	RPC     RPC
 	Logger  PanicLogger
+	nodes   []uint64
 }
 
-func (e *Egress) BroadcastConsensus(m *protos.Message) {
-	for _, node := range e.Nodes {
-		e.RPC.SendConsensus(node, bftMsgToClusterMsg(m, e.Channel))
-	}
+func (e *Egress) Nodes() []uint64 {
+	return e.nodes
 }
 
 func (e *Egress) SendConsensus(targetID uint64, m *protos.Message) {

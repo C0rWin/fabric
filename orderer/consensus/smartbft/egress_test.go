@@ -20,36 +20,6 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-func TestEgressBroadcastConsensus(t *testing.T) {
-	logger := flogging.MustGetLogger("test")
-	rpc := &mocks.RPC{}
-	rpc.On("SendConsensus", mock.Anything, mock.Anything).Return(nil)
-	egress := &smartbft.Egress{
-		Logger:  logger,
-		Channel: "test",
-		RPC:     rpc,
-		Nodes:   []uint64{1, 2, 3},
-	}
-
-	prePrepare := &protos.Message{
-		Content: &protos.Message_PrePrepare{
-			PrePrepare: &protos.PrePrepare{View: 1, Seq: 1},
-		},
-	}
-
-	expectedMsg := &orderer.ConsensusRequest{
-		Payload: protoutil.MarshalOrPanic(prePrepare),
-		Channel: "test",
-	}
-
-	egress.BroadcastConsensus(prePrepare)
-
-	rpc.AssertCalled(t, "SendConsensus", uint64(1), expectedMsg)
-	rpc.AssertCalled(t, "SendConsensus", uint64(2), expectedMsg)
-	rpc.AssertCalled(t, "SendConsensus", uint64(3), expectedMsg)
-	rpc.AssertNumberOfCalls(t, "SendConsensus", 3)
-}
-
 func TestEgressSendConsensus(t *testing.T) {
 	logger := flogging.MustGetLogger("test")
 	rpc := &mocks.RPC{}
