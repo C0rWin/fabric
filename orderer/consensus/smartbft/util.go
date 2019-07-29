@@ -72,10 +72,24 @@ func newBlockPuller(
 	return bp, nil
 }
 
-func getViewMetadataLastConfigSqnFromBlock(block *common.Block) (smartbftprotos.ViewMetadata, uint64) {
+func getViewMetadataFromBlock(block *common.Block) (smartbftprotos.ViewMetadata, error) {
+	if block.Header.Number == 0 {
+		// Genesis block has no prior metadata so we just return an un-initialized metadata
+		return smartbftprotos.ViewMetadata{}, nil
+	}
+
 	ordererMetadata := protoutil.GetMetadataFromBlockOrPanic(block, common.BlockMetadataIndex_ORDERER)
+
 	var viewMetadata smartbftprotos.ViewMetadata
-	err := proto.Unmarshal(ordererMetadata.Value, &viewMetadata)
+	if err := proto.Unmarshal(ordererMetadata.Value, &viewMetadata); err != nil {
+		return smartbftprotos.ViewMetadata{}, err
+	}
+
+	return viewMetadata, nil
+}
+
+func getViewMetadataLastConfigSqnFromBlock(block *common.Block) (smartbftprotos.ViewMetadata, uint64) {
+	viewMetadata, err := getViewMetadataFromBlock(block)
 	if err != nil {
 		return smartbftprotos.ViewMetadata{}, 0
 	}

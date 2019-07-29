@@ -35,7 +35,9 @@ type Consensus struct {
 	RequestInspector bft.RequestInspector
 	Synchronizer     bft.Synchronizer
 	Logger           bft.Logger
-	controller       *algorithm.Controller
+	Metadata         protos.ViewMetadata
+
+	controller *algorithm.Controller
 }
 
 func (c *Consensus) Complain() {
@@ -64,6 +66,7 @@ func (c *Consensus) Start() Future {
 	}
 
 	c.controller = &algorithm.Controller{
+		ProposerBuilder:  c,
 		WAL:              c.WAL,
 		ID:               c.SelfID,
 		N:                c.N,
@@ -83,7 +86,7 @@ func (c *Consensus) Start() Future {
 
 	pool.SetTimeoutHandler(c.controller)
 
-	future := c.controller.Start(0, 0)
+	future := c.controller.Start(c.Metadata.ViewId, c.Metadata.LatestSequence)
 	return future
 }
 
@@ -107,4 +110,40 @@ func (c *Consensus) BroadcastConsensus(m *protos.Message) {
 		}
 		c.Comm.SendConsensus(node, m)
 	}
+}
+
+func (c *Consensus) NewProposer(leader, proposalSequence, viewNum uint64, quorumSize int) algorithm.Proposer {
+	persistedState := &algorithm.PersistedState{
+		Logger: c.Logger,
+		WAL:    c.WAL,
+	}
+
+	view := &algorithm.View{
+		N:                c.N,
+		LeaderID:         leader,
+		SelfID:           c.SelfID,
+		Quorum:           quorumSize,
+		Number:           viewNum,
+		Decider:          c.controller,
+		FailureDetector:  c.controller.FailureDetector,
+		Sync:             c.Synchronizer,
+		Logger:           c.Logger,
+		Comm:             c,
+		Verifier:         c.Verifier,
+		Signer:           c.Signer,
+		ProposalSequence: proposalSequence,
+		State:            &algorithm.PersistedState{WAL: c.WAL},
+	}
+
+	persistedState.Restore(view)
+
+	if proposalSequence > view.ProposalSequence {
+		view.ProposalSequence = proposalSequence
+	}
+
+	if viewNum > view.Number {
+		view.Number = viewNum
+	}
+
+	return view
 }

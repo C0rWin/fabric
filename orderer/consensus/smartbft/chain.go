@@ -184,6 +184,12 @@ func (c *BFTChain) Start() {
 		c.verifier.LastCommittedBlockHash = hex.EncodeToString(protoutil.BlockHeaderHash(lastBlock.Header))
 	}
 
+	block := c.support.Block(c.support.Height() - 1)
+	latestMetadata, err := getViewMetadataFromBlock(block)
+	if err != nil {
+		c.Logger.Panicf("Failed extracting view metadata from ledger: %v", err)
+	}
+
 	c.Consensus = &smartbft.Consensus{
 		SelfID:       c.SelfID,
 		N:            clusterSize,
@@ -196,6 +202,7 @@ func (c *BFTChain) Start() {
 			Logger:           flogging.MustGetLogger("orderer.consensus.smartbft.signer"),
 			SignerSerializer: c.SignerSerializer,
 		},
+		Metadata: latestMetadata,
 		// TODO: Change WAL into regular one
 		WAL:         &wal.EphemeralWAL{},
 		Application: c,
