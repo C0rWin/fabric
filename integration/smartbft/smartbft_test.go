@@ -14,6 +14,8 @@ import (
 	"os"
 	"syscall"
 
+	"fmt"
+
 	docker "github.com/fsouza/go-dockerclient"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
@@ -107,29 +109,44 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(0))
 			Expect(sess).To(gbytes.Say("100"))
 
-			sess, err = network.PeerUserSession(peer, "User1", commands.ChaincodeInvoke{
-				ChannelID: channel,
-				Orderer:   network.OrdererAddress(orderer, nwo.ListenPort),
-				Name:      "mycc",
-				Ctor:      `{"Args":["invoke","a","b","10"]}`,
-				PeerAddresses: []string{
-					network.PeerAddress(network.Peer("Org1", "peer0"), nwo.ListenPort),
-					network.PeerAddress(network.Peer("Org2", "peer1"), nwo.ListenPort),
-				},
-				WaitForEvent: true,
-			})
-			Expect(err).NotTo(HaveOccurred())
-			Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(0))
-			Expect(sess.Err).To(gbytes.Say("Chaincode invoke successful. result: status:200"))
+			invokeQuery(network, peer, orderer, channel, 90)
 
-			sess, err = network.PeerUserSession(peer, "User1", commands.ChaincodeQuery{
-				ChannelID: channel,
-				Name:      "mycc",
-				Ctor:      `{"Args":["query","a"]}`,
-			})
-			Expect(err).NotTo(HaveOccurred())
-			Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(0))
-			Expect(sess).To(gbytes.Say("90"))
+			By("Taking down all the nodes")
+			networkProcess.Signal(syscall.SIGTERM)
+			Eventually(networkProcess.Wait(), network.EventuallyTimeout).Should(Receive())
+
+			By("Bringing up all the nodes")
+			ordererRunner = network.NetworkGroupRunner()
+			networkProcess = ifrit.Invoke(ordererRunner)
+			Eventually(networkProcess.Ready(), network.EventuallyTimeout).Should(BeClosed())
+
+			invokeQuery(network, peer, orderer, channel, 80)
 		})
 	})
 })
+
+func invokeQuery(network *nwo.Network, peer *nwo.Peer, orderer *nwo.Orderer, channel string, expectedBalance int) {
+	sess, err := network.PeerUserSession(peer, "User1", commands.ChaincodeInvoke{
+		ChannelID: channel,
+		Orderer:   network.OrdererAddress(orderer, nwo.ListenPort),
+		Name:      "mycc",
+		Ctor:      `{"Args":["invoke","a","b","10"]}`,
+		PeerAddresses: []string{
+			network.PeerAddress(network.Peer("Org1", "peer0"), nwo.ListenPort),
+			network.PeerAddress(network.Peer("Org2", "peer1"), nwo.ListenPort),
+		},
+		WaitForEvent: true,
+	})
+	Expect(err).NotTo(HaveOccurred())
+	Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(0))
+	Expect(sess.Err).To(gbytes.Say("Chaincode invoke successful. result: status:200"))
+
+	sess, err = network.PeerUserSession(peer, "User1", commands.ChaincodeQuery{
+		ChannelID: channel,
+		Name:      "mycc",
+		Ctor:      `{"Args":["query","a"]}`,
+	})
+	Expect(err).NotTo(HaveOccurred())
+	Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(0))
+	Expect(sess).To(gbytes.Say(fmt.Sprintf("%d", expectedBalance)))
+}

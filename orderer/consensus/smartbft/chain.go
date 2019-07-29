@@ -161,6 +161,7 @@ func (c *BFTChain) Start() {
 	for _, n := range c.RemoteNodes {
 		nodes = append(nodes, n.ID)
 	}
+	nodes = append(nodes, c.SelfID)
 
 	c.verifier = &Verifier{
 		VerificationSequencer: c.support,
@@ -218,6 +219,7 @@ func (c *BFTChain) Start() {
 			blockPuller: c.BlockPuller,
 		},
 		Comm: &Egress{
+			nodes:   nodes,
 			Channel: c.support.ChainID(),
 			Logger:  flogging.MustGetLogger("orderer.consensus.smartbft.egress"),
 			RPC: &cluster.RPC{
