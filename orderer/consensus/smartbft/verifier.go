@@ -69,6 +69,17 @@ func (v *Verifier) VerifyProposal(proposal types.Proposal) ([]types.RequestInfo,
 	return requests, nil
 }
 
+func (v *Verifier) VerifySignature(signature types.Signature) error {
+	identity, exists := v.Id2Identity[signature.Id]
+	if !exists {
+		return errors.Errorf("node with id of %d doesn't exist", signature.Id)
+	}
+
+	return v.AccessController.Evaluate([]*protoutil.SignedData{
+		{Identity: identity, Data: signature.Msg, Signature: signature.Value},
+	})
+}
+
 func (v *Verifier) VerifyRequest(rawRequest []byte) (types.RequestInfo, error) {
 	req, err := v.ReqInspector.unwrapReq(rawRequest)
 	if err != nil {
