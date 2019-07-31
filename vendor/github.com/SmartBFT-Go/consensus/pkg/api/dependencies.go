@@ -26,7 +26,6 @@ type Assembler interface {
 
 type WriteAheadLog interface {
 	Append(entry []byte, truncateTo bool) error
-	ReadAll() ([][]byte, error)
 }
 
 type Signer interface {
@@ -38,6 +37,7 @@ type Verifier interface {
 	VerifyProposal(proposal bft.Proposal) ([]bft.RequestInfo, error)
 	VerifyRequest(val []byte) (bft.RequestInfo, error)
 	VerifyConsenterSig(signature bft.Signature, prop bft.Proposal) error
+	VerifySignature(signature bft.Signature) error
 	VerificationSequence() uint64
 }
 

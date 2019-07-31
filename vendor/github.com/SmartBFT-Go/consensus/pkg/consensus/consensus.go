@@ -8,6 +8,8 @@ package consensus
 import (
 	"time"
 
+	"sync"
+
 	algorithm "github.com/SmartBFT-Go/consensus/internal/bft"
 	bft "github.com/SmartBFT-Go/consensus/pkg/api"
 	"github.com/SmartBFT-Go/consensus/pkg/types"
@@ -27,17 +29,19 @@ type Consensus struct {
 	BatchSize    int
 	BatchTimeout time.Duration
 	bft.Comm
-	Application      bft.Application
-	Assembler        bft.Assembler
-	WAL              bft.WriteAheadLog
-	Signer           bft.Signer
-	Verifier         bft.Verifier
-	RequestInspector bft.RequestInspector
-	Synchronizer     bft.Synchronizer
-	Logger           bft.Logger
-	Metadata         protos.ViewMetadata
+	Application       bft.Application
+	Assembler         bft.Assembler
+	WAL               bft.WriteAheadLog
+	WALInitialContent [][]byte
+	Signer            bft.Signer
+	Verifier          bft.Verifier
+	RequestInspector  bft.RequestInspector
+	Synchronizer      bft.Synchronizer
+	Logger            bft.Logger
+	Metadata          protos.ViewMetadata
 
-	controller *algorithm.Controller
+	controller         *algorithm.Controller
+	restoreOnceFromWAL sync.Once
 }
 
 func (c *Consensus) Complain() {
@@ -53,24 +57,18 @@ type Future interface {
 	Wait()
 }
 
-func (c *Consensus) Start() Future {
+func (c *Consensus) Start() {
 	requestTimeout := 2 * c.BatchTimeout // Request timeout should be at least as batch timeout
 
 	pool := algorithm.NewPool(c.Logger, c.RequestInspector, algorithm.PoolOptions{QueueSize: DefaultRequestPoolSize, RequestTimeout: requestTimeout})
-
-	batcher := &algorithm.Bundler{
-		CloseChan:    make(chan struct{}),
-		Pool:         pool,
-		BatchSize:    c.BatchSize,
-		BatchTimeout: c.BatchTimeout,
-	}
+	batchBuilder := algorithm.NewBatchBuilder(pool, c.BatchSize, c.BatchTimeout)
 
 	c.controller = &algorithm.Controller{
 		ProposerBuilder:  c,
 		WAL:              c.WAL,
 		ID:               c.SelfID,
 		N:                c.N,
-		Batcher:          batcher,
+		Batcher:          batchBuilder,
 		RequestPool:      pool,
 		RequestTimeout:   requestTimeout,
 		Verifier:         c.Verifier,
@@ -86,8 +84,11 @@ func (c *Consensus) Start() Future {
 
 	pool.SetTimeoutHandler(c.controller)
 
-	future := c.controller.Start(c.Metadata.ViewId, c.Metadata.LatestSequence)
-	return future
+	c.controller.Start(c.Metadata.ViewId, c.Metadata.LatestSequence)
+}
+
+func (c *Consensus) Stop() {
+	c.controller.Stop()
 }
 
 func (c *Consensus) HandleMessage(sender uint64, m *protos.Message) {
@@ -95,6 +96,12 @@ func (c *Consensus) HandleMessage(sender uint64, m *protos.Message) {
 		c.controller.ProcessMessages(sender, m)
 	}
 
+}
+
+func (c *Consensus) HandleRequest(sender uint64, req []byte) {
+	// TODO: check if we're the leader at some layer, and also verify the message,
+	// and discard it.
+	c.controller.SubmitRequest(req)
 }
 
 func (c *Consensus) SubmitRequest(req []byte) error {
@@ -114,8 +121,9 @@ func (c *Consensus) BroadcastConsensus(m *protos.Message) {
 
 func (c *Consensus) NewProposer(leader, proposalSequence, viewNum uint64, quorumSize int) algorithm.Proposer {
 	persistedState := &algorithm.PersistedState{
-		Logger: c.Logger,
-		WAL:    c.WAL,
+		Entries: c.WALInitialContent,
+		Logger:  c.Logger,
+		WAL:     c.WAL,
 	}
 
 	view := &algorithm.View{
@@ -132,10 +140,12 @@ func (c *Consensus) NewProposer(leader, proposalSequence, viewNum uint64, quorum
 		Verifier:         c.Verifier,
 		Signer:           c.Signer,
 		ProposalSequence: proposalSequence,
-		State:            &algorithm.PersistedState{WAL: c.WAL},
+		State:            persistedState,
 	}
 
-	persistedState.Restore(view)
+	c.restoreOnceFromWAL.Do(func() {
+		persistedState.Restore(view)
+	})
 
 	if proposalSequence > view.ProposalSequence {
 		view.ProposalSequence = proposalSequence

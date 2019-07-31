@@ -179,16 +179,15 @@ func (c *Consenter) HandleChain(support consensus.ConsenterSupport, metadata *co
 		return nil, errors.Wrap(err, "failed extracting bundle from envelope")
 	}
 
-	return &BFTChain{
-		SelfID:           selfID,
-		Logger:           c.Logger,
-		Comm:             c.Comm,
-		support:          support,
-		SignerSerializer: c.SignerSerializer,
-		PolicyManager:    bundle.PolicyManager(),
-		RemoteNodes:      nodes,
-		ID2Identities:    id2Identies,
-	}, nil
+	return NewChain(selfID,
+		nil, // TODO: Initialize blocks puller
+		c.Comm,
+		c.SignerSerializer,
+		bundle.PolicyManager(),
+		nodes,
+		id2Identies,
+		support,
+	), nil
 }
 
 func (c *Consenter) pemToDER(pemBytes []byte, id uint64, certType string) ([]byte, error) {

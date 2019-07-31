@@ -38,30 +38,176 @@ type BlockPuller interface {
 	Close()
 }
 
+// Config consensus specific configuration parameters
+type Config struct {
+	WALDir            string // WAL data of <my-channel> is stored in WALDir/<my-channel>
+	SnapDir           string // Snapshots of <my-channel> are stored in SnapDir/<my-channel>
+	EvictionSuspicion string // Duration threshold that the node samples in order to suspect its eviction from the channel.
+}
+
 // BFTChain implements Chain interface to wire with
 // BFT smart library
 type BFTChain struct {
 	SelfID           uint64
-	Logger           *flogging.FabricLogger
-	Consensus        *smartbft.Consensus
 	BlockPuller      BlockPuller
 	Comm             cluster.Communicator
 	SignerSerializer identity.SignerSerializer
 	PolicyManager    policy.PolicyManager
 	RemoteNodes      []cluster.RemoteNode
 	ID2Identities    NodeIdentitiesByID
-	support          consensus.ConsenterSupport
-	verifier         *Verifier
+	Logger           *flogging.FabricLogger
+
+	consensus *smartbft.Consensus
+	support   consensus.ConsenterSupport
+	verifier  *Verifier
+}
+
+// NewChain creates new BFT Smart chain
+func NewChain(
+	selfID uint64,
+	blockPuller BlockPuller,
+	comm cluster.Communicator,
+	signerSerializer identity.SignerSerializer,
+	policyManager policy.PolicyManager,
+	remoteNodes []cluster.RemoteNode,
+	id2Identities NodeIdentitiesByID,
+	support consensus.ConsenterSupport,
+) *BFTChain {
+
+	requestInspector := &RequestInspector{
+		ValidateIdentityStructure: func(_ *msp.SerializedIdentity) error {
+			return nil
+		},
+	}
+
+	var nodes []uint64
+	for _, n := range remoteNodes {
+		nodes = append(nodes, n.ID)
+	}
+	nodes = append(nodes, selfID)
+
+	c := &BFTChain{
+		SelfID:           selfID,
+		Comm:             comm,
+		support:          support,
+		SignerSerializer: signerSerializer,
+		PolicyManager:    policyManager,
+		RemoteNodes:      remoteNodes,
+		ID2Identities:    id2Identities,
+		BlockPuller:      blockPuller,
+		Logger:           flogging.MustGetLogger("orderer.consensus.smartbft.chain"),
+	}
+
+	c.verifier = verifierBuild(support, requestInspector, id2Identities, policyManager)
+
+	if c.verifier.LastCommittedBlockHash == "" {
+		lastBlock := lastBlockFromLedgerOrPanic(support, c.Logger)
+		c.verifier.LastCommittedBlockHash = hex.EncodeToString(protoutil.BlockHeaderHash(lastBlock.Header))
+	}
+
+	c.consensus = bftSmartConsensusBuild(c, requestInspector, nodes)
+
+	// Setup communication with list of remotes notes for the new channel
+	c.Logger.Debugf("Configure cluster communication with remote nodes [%+v]")
+	c.Comm.Configure(c.support.ChainID(), c.RemoteNodes)
+
+	return c
+}
+
+func bftSmartConsensusBuild(
+	c *BFTChain,
+	requestInspector *RequestInspector,
+	nodes []uint64,
+) *smartbft.Consensus {
+
+	// TODO: this could be optimized as we already read block to build
+	// policy manager configuration, block we read could be re-used here
+	// instead going to the ledger once again.
+	block := c.support.Block(c.support.Height() - 1)
+	latestMetadata, err := getViewMetadataFromBlock(block)
+	if err != nil {
+		c.Logger.Panicf("Failed extracting view metadata from ledger: %v", err)
+	}
+
+	// wal.Create(c.Logger, c.WALDir, wal.DefaultOptions()) // TODO: Externalize WAL options into configuration
+
+	clusterSize := uint64(len(nodes))
+
+	return &smartbft.Consensus{
+		SelfID:       c.SelfID,
+		N:            clusterSize,
+		BatchSize:    1,
+		BatchTimeout: 5 * time.Second,
+		Logger:       flogging.MustGetLogger("orderer.consensus.smartbft.consensus"),
+		Verifier:     c.verifier,
+		Signer: &Signer{
+			ID:               c.SelfID,
+			Logger:           flogging.MustGetLogger("orderer.consensus.smartbft.signer"),
+			SignerSerializer: c.SignerSerializer,
+		},
+		Metadata: latestMetadata,
+		// TODO: Change WAL into regular one
+		WAL:               &wal.EphemeralWAL{},
+		WALInitialContent: nil, // Read from WAL entries
+		Application:       c,
+		Assembler: &Assembler{
+			Logger: flogging.MustGetLogger("orderer.consensus.smartbft.assembler"),
+			Ledger: c.support,
+		},
+		RequestInspector: requestInspector,
+		Synchronizer: &Synchronizer{
+			support:     c.support,
+			clusterSize: clusterSize,
+			logger:      flogging.MustGetLogger("orderer.consensus.smartbft.synchronizer"),
+			blockPuller: c.BlockPuller,
+		},
+		Comm: &Egress{
+			nodes:   nodes,
+			Channel: c.support.ChainID(),
+			Logger:  flogging.MustGetLogger("orderer.consensus.smartbft.egress"),
+			RPC: &cluster.RPC{
+				Logger:        flogging.MustGetLogger("orderer.consensus.smartbft.rpc"),
+				Channel:       c.support.ChainID(),
+				StreamsByType: cluster.NewStreamsByType(),
+				Comm:          c.Comm,
+				Timeout:       5 * time.Minute, // Externalize configuration
+			},
+		},
+	}
+}
+
+func verifierBuild(
+	support consensus.ConsenterSupport,
+	requestInspector *RequestInspector,
+	id2Identities NodeIdentitiesByID,
+	policyManager policy.PolicyManager,
+) *Verifier {
+	return &Verifier{
+		VerificationSequencer: support,
+		ReqInspector:          requestInspector,
+		Logger:                flogging.MustGetLogger("orderer.consensus.smartbft.verifier"),
+		Id2Identity:           id2Identities,
+		BlockVerifier: &cluster.BlockValidationPolicyVerifier{
+			Logger:    flogging.MustGetLogger("orderer.consensus.smartbft.verifier.block"),
+			Channel:   support.ChainID(),
+			PolicyMgr: policyManager,
+		},
+		AccessController: &chainACL{
+			policyManager: policyManager,
+			Logger:        flogging.MustGetLogger("orderer.consensus.smartbft.accesscontroller"),
+		},
+		Ledger: support,
+	}
 }
 
 func (c *BFTChain) HandleMessage(sender uint64, m *smartbftprotos.Message) {
 	c.Logger.Debugf("HandleMessage from %d, local node id", sender, c.SelfID)
-	c.Consensus.HandleMessage(sender, m)
+	c.consensus.HandleMessage(sender, m)
 }
 
 func (c *BFTChain) HandleRequest(sender uint64, req []byte) {
 	c.Logger.Debugf("HandleRequest from %d, local node id", sender, c.SelfID)
-	c.Consensus.SubmitRequest(req)
+	c.consensus.SubmitRequest(req)
 }
 
 func (c *BFTChain) Deliver(proposal types.Proposal, signatures []types.Signature) {
@@ -134,7 +280,7 @@ func (c *BFTChain) submit(env *common.Envelope, configSeq uint64) error {
 	}
 
 	c.Logger.Debugf("Consensus.SubmitRequest, node id %d", c.SelfID)
-	c.Consensus.SubmitRequest(reqBytes)
+	c.consensus.SubmitRequest(reqBytes)
 	return nil
 }
 
@@ -148,94 +294,7 @@ func (c *BFTChain) Errored() <-chan struct{} {
 }
 
 func (c *BFTChain) Start() {
-	requestInspector := &RequestInspector{
-		ValidateIdentityStructure: func(_ *msp.SerializedIdentity) error {
-			return nil
-		},
-	}
-
-	// Number of replica set nodes
-	clusterSize := uint64(len(c.RemoteNodes)) + 1 // +1 for current node as not counted among remote nodes
-
-	var nodes []uint64
-	for _, n := range c.RemoteNodes {
-		nodes = append(nodes, n.ID)
-	}
-	nodes = append(nodes, c.SelfID)
-
-	c.verifier = &Verifier{
-		VerificationSequencer: c.support,
-		ReqInspector:          requestInspector,
-		Logger:                flogging.MustGetLogger("orderer.consensus.smartbft.verifier"),
-		Id2Identity:           c.ID2Identities,
-		BlockVerifier: &cluster.BlockValidationPolicyVerifier{
-			Logger:    flogging.MustGetLogger("orderer.consensus.smartbft.verifier.block"),
-			Channel:   c.support.ChainID(),
-			PolicyMgr: c.PolicyManager,
-		},
-		AccessController: &chainACL{
-			policyManager: c.PolicyManager,
-			Logger:        c.Logger,
-		},
-		Ledger: c.support,
-	}
-
-	if c.verifier.LastCommittedBlockHash == "" {
-		lastBlock := lastBlockFromLedgerOrPanic(c.support, c.Logger)
-		c.verifier.LastCommittedBlockHash = hex.EncodeToString(protoutil.BlockHeaderHash(lastBlock.Header))
-	}
-
-	block := c.support.Block(c.support.Height() - 1)
-	latestMetadata, err := getViewMetadataFromBlock(block)
-	if err != nil {
-		c.Logger.Panicf("Failed extracting view metadata from ledger: %v", err)
-	}
-
-	c.Consensus = &smartbft.Consensus{
-		SelfID:       c.SelfID,
-		N:            clusterSize,
-		BatchSize:    1,
-		BatchTimeout: 5 * time.Second,
-		Logger:       flogging.MustGetLogger("orderer.consensus.smartbft.consensus"),
-		Verifier:     c.verifier,
-		Signer: &Signer{
-			ID:               c.SelfID,
-			Logger:           flogging.MustGetLogger("orderer.consensus.smartbft.signer"),
-			SignerSerializer: c.SignerSerializer,
-		},
-		Metadata: latestMetadata,
-		// TODO: Change WAL into regular one
-		WAL:         &wal.EphemeralWAL{},
-		Application: c,
-		Assembler: &Assembler{
-			Logger: flogging.MustGetLogger("orderer.consensus.smartbft.assembler"),
-			Ledger: c.support,
-		},
-		RequestInspector: requestInspector,
-		Synchronizer: &Synchronizer{
-			support:     c.support,
-			clusterSize: clusterSize,
-			logger:      flogging.MustGetLogger("orderer.consensus.smartbft.synchronizer"),
-			blockPuller: c.BlockPuller,
-		},
-		Comm: &Egress{
-			nodes:   nodes,
-			Channel: c.support.ChainID(),
-			Logger:  flogging.MustGetLogger("orderer.consensus.smartbft.egress"),
-			RPC: &cluster.RPC{
-				Logger:        flogging.MustGetLogger("orderer.consensus.smartbft.rpc"),
-				Channel:       c.support.ChainID(),
-				StreamsByType: cluster.NewStreamsByType(),
-				Comm:          c.Comm,
-				Timeout:       5 * time.Minute, // Externalize configuration
-			},
-		},
-	}
-
-	// Setup communication with list of remotes notes for the new channel
-	c.Logger.Debugf("Configure cluster communication with remote nodes [%+v]")
-	c.Comm.Configure(c.support.ChainID(), c.RemoteNodes)
-	c.Consensus.Start()
+	c.consensus.Start()
 }
 
 func (c *BFTChain) Halt() {
