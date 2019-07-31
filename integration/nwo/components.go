@@ -7,56 +7,35 @@ SPDX-License-Identifier: Apache-2.0
 package nwo
 
 import (
-	"fmt"
 	"os"
-	"runtime"
+	"sync"
 
 	"github.com/hyperledger/fabric/integration/helpers"
-	"github.com/hyperledger/fabric/integration/runner"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gexec"
 )
 
+const CCEnvDefaultImage = "hyperledger/fabric-ccenv:latest"
+
 type Components struct {
 	Paths map[string]string
+	Args  []string
+
+	cryptoOnce   sync.Once
+	idemixOnce   sync.Once
+	configOnce   sync.Once
+	ordererOnce  sync.Once
+	peerOnce     sync.Once
+	discoverOnce sync.Once
+	tokenOnce    sync.Once
+	verifyOnce   sync.Once
 }
 
 var RequiredImages = []string{
-	fmt.Sprintf("hyperledger/fabric-ccenv:%s-latest", runtime.GOARCH),
-	runner.CouchDBDefaultImage,
-	runner.KafkaDefaultImage,
-	runner.ZooKeeperDefaultImage,
-}
-
-func (c *Components) Build(args ...string) {
-	helpers.AssertImagesExist(RequiredImages...)
-
-	if c.Paths == nil {
-		c.Paths = map[string]string{}
-	}
-	cryptogen, err := gexec.Build("github.com/hyperledger/fabric/common/tools/cryptogen", args...)
-	Expect(err).NotTo(HaveOccurred())
-	c.Paths["cryptogen"] = cryptogen
-
-	idemixgen, err := gexec.Build("github.com/hyperledger/fabric/common/tools/idemixgen", args...)
-	Expect(err).NotTo(HaveOccurred())
-	c.Paths["idemixgen"] = idemixgen
-
-	configtxgen, err := gexec.Build("github.com/hyperledger/fabric/common/tools/configtxgen", args...)
-	Expect(err).NotTo(HaveOccurred())
-	c.Paths["configtxgen"] = configtxgen
-
-	orderer, err := gexec.Build("github.com/hyperledger/fabric/orderer", args...)
-	Expect(err).NotTo(HaveOccurred())
-	c.Paths["orderer"] = orderer
-
-	peer, err := gexec.Build("github.com/hyperledger/fabric/peer", args...)
-	Expect(err).NotTo(HaveOccurred())
-	c.Paths["peer"] = peer
-
-	discover, err := gexec.Build("github.com/hyperledger/fabric/cmd/discover", args...)
-	Expect(err).NotTo(HaveOccurred())
-	c.Paths["discover"] = discover
+	CCEnvDefaultImage,
+	//runner.CouchDBDefaultImage,
+	//runner.KafkaDefaultImage,
+	//runner.ZooKeeperDefaultImage,
 }
 
 func (c *Components) Cleanup() {
@@ -67,9 +46,64 @@ func (c *Components) Cleanup() {
 	gexec.CleanupBuildArtifacts()
 }
 
-func (c *Components) Cryptogen() string   { return c.Paths["cryptogen"] }
-func (c *Components) Idemixgen() string   { return c.Paths["idemixgen"] }
-func (c *Components) ConfigTxGen() string { return c.Paths["configtxgen"] }
-func (c *Components) Orderer() string     { return c.Paths["orderer"] }
-func (c *Components) Peer() string        { return c.Paths["peer"] }
-func (c *Components) Discover() string    { return c.Paths["discover"] }
+func (c *Components) Cryptogen() string {
+	c.cryptoOnce.Do(func() {
+		c.Paths["cryptogen"] = c.build("cryptogen", "github.com/hyperledger/fabric/cmd/cryptogen")
+	})
+	return c.Paths["cryptogen"]
+}
+
+func (c *Components) Idemixgen() string {
+	c.idemixOnce.Do(func() {
+		c.Paths["idemix"] = c.build("idemix", "github.com/hyperledger/fabric/common/tools/idemixgen")
+	})
+	return c.Paths["idemix"]
+}
+
+func (c *Components) ConfigTxGen() string {
+	c.configOnce.Do(func() {
+		c.Paths["configtxgen"] = c.build("configtxgen", "github.com/hyperledger/fabric/cmd/configtxgen")
+	})
+	return c.Paths["configtxgen"]
+}
+
+func (c *Components) Orderer() string {
+	c.ordererOnce.Do(func() {
+		c.Paths["orderer"] = c.build("orderer", "github.com/hyperledger/fabric/orderer")
+	})
+	return c.Paths["orderer"]
+}
+
+func (c *Components) Peer() string {
+	c.peerOnce.Do(func() {
+		c.Paths["peer"] = c.build("peer", "github.com/hyperledger/fabric/cmd/peer")
+	})
+	return c.Paths["peer"]
+}
+
+func (c *Components) Discover() string {
+	c.discoverOnce.Do(func() {
+		c.Paths["discover"] = c.build("discover", "github.com/hyperledger/fabric/cmd/discover")
+	})
+	return c.Paths["discover"]
+}
+
+func (c *Components) Token() string {
+	c.tokenOnce.Do(func() {
+		c.Paths["token"] = c.build("token", "github.com/hyperledger/fabric/cmd/token")
+	})
+	return c.Paths["token"]
+}
+
+func (c *Components) build(binaryName string, path string) string {
+	c.verifyOnce.Do(func() {
+		if c.Paths == nil {
+			c.Paths = make(map[string]string)
+		}
+		helpers.AssertImagesExist(RequiredImages...)
+	})
+	build, err := gexec.Build(path, c.Args...)
+	Expect(err).NotTo(HaveOccurred())
+	c.Paths[binaryName] = build
+	return c.Paths[binaryName]
+}

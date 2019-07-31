@@ -29,3 +29,12 @@ if [[ $? -ne 0 ]];then
     exit 1
 fi
 
+echo "Pulling docker pull hyperledger/fabric-ccenv:latest"
+docker pull hyperledger/fabric-ccenv:latest
+
+echo "Installing Ginkgo :( "
+go get github.com/onsi/ginkgo/ginkgo
+go get github.com/onsi/gomega/...
+
+cd integration/smartbft
+ginkgo --focus "smartbft multiple nodes"
