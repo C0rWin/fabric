@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"encoding/pem"
 	"fmt"
+	"path"
 	"reflect"
 
 	"github.com/golang/protobuf/proto"
@@ -31,6 +32,7 @@ import (
 	"github.com/hyperledger/fabric/protos/orderer"
 	"github.com/hyperledger/fabric/protos/orderer/smartbft"
 	"github.com/hyperledger/fabric/protoutil"
+	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
 )
 
@@ -50,6 +52,7 @@ type Consenter struct {
 	Chains           ChainGetter
 	SignerSerializer identity.SignerSerializer
 	Registrar        *multichannel.Registrar
+	WALBaseDir       string
 }
 
 // New creates Consenter of type smart bft
@@ -66,12 +69,21 @@ func New(
 
 	metrics := cluster.NewMetrics(metricsProvider)
 
+	var cfg Config
+	err := mapstructure.Decode(conf.Consensus, &cfg)
+	if err != nil {
+		logger.Panicf("Failed to decode consensus configuration: %s", err)
+	}
+
+	logger.Infof("XXX WAL Directory is %s", cfg.WALDir)
+
 	consenter := &Consenter{
 		Logger:           logger,
 		Cert:             srvConf.SecOpts.Certificate,
 		Chains:           r,
 		SignerSerializer: signerSerializer,
 		Registrar:        r,
+		WALBaseDir:       cfg.WALDir,
 	}
 
 	consenter.Comm = &cluster.Comm{
@@ -180,6 +192,7 @@ func (c *Consenter) HandleChain(support consensus.ConsenterSupport, metadata *co
 	}
 
 	return NewChain(selfID,
+		path.Join(c.WALBaseDir, support.ChainID()),
 		nil, // TODO: Initialize blocks puller
 		c.Comm,
 		c.SignerSerializer,
