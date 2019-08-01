@@ -16,6 +16,10 @@ import (
 
 	"fmt"
 
+	"strings"
+	"sync"
+	"time"
+
 	docker "github.com/fsouza/go-dockerclient"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
@@ -62,21 +66,7 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 		os.RemoveAll(testDir)
 	})
 
-	Describe("single node smartbft network with 1 org", func() {
-		It("smartbft basic network", func() {
-			network = nwo.New(nwo.BasicSmartBFT(), testDir, client, StartPort(), components)
-			network.GenerateConfigTree()
-			network.Bootstrap()
-
-			ordererRunner := network.NetworkGroupRunner()
-			networkProcess = ifrit.Invoke(ordererRunner)
-			Eventually(networkProcess.Ready(), network.EventuallyTimeout).Should(BeClosed())
-
-			orderer := network.Orderer("orderer")
-			peer := network.Peer("Org1", "peer0")
-			network.CreateChannel("testchannel", orderer, peer)
-		})
-
+	Describe("smartbft network", func() {
 		It("smartbft multiple nodes", func() {
 			network = nwo.New(nwo.MultiNodeSmartBFT(), testDir, client, StartPort(), components)
 			network.GenerateConfigTree()
@@ -84,7 +74,12 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 
 			ordererRunner := network.NetworkGroupRunner()
 			networkProcess = ifrit.Invoke(ordererRunner)
+
+			peer := network.Peer("Org1", "peer0")
+
 			Eventually(networkProcess.Ready(), network.EventuallyTimeout).Should(BeClosed())
+
+			assertBlockReception(map[string]int{"systemchannel": 0}, network.Orderers, peer, network)
 
 			channel := "testchannel1"
 			orderer := network.Orderer("orderer1")
@@ -99,7 +94,7 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			})
 
 			By("querying the chaincode")
-			peer := network.Peer("Org1", "peer0")
+
 			sess, err := network.PeerUserSession(peer, "User1", commands.ChaincodeQuery{
 				ChannelID: channel,
 				Name:      "mycc",
@@ -149,4 +144,55 @@ func invokeQuery(network *nwo.Network, peer *nwo.Peer, orderer *nwo.Orderer, cha
 	Expect(err).NotTo(HaveOccurred())
 	Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(0))
 	Expect(sess).To(gbytes.Say(fmt.Sprintf("%d", expectedBalance)))
+}
+
+// assertBlockReception asserts that the given orderers have expected heights for the given channel--> height mapping
+func assertBlockReception(expectedHeightsPerChannel map[string]int, orderers []*nwo.Orderer, p *nwo.Peer, n *nwo.Network) {
+	assertReception := func(channelName string, blockSeq int) {
+		var wg sync.WaitGroup
+		wg.Add(len(orderers))
+		for _, orderer := range orderers {
+			go func(orderer *nwo.Orderer) {
+				defer GinkgoRecover()
+				defer wg.Done()
+				waitForBlockReception(orderer, p, n, channelName, blockSeq)
+			}(orderer)
+		}
+		wg.Wait()
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(len(expectedHeightsPerChannel))
+
+	for channelName, blockSeq := range expectedHeightsPerChannel {
+		go func(channelName string, blockSeq int) {
+			defer GinkgoRecover()
+			defer wg.Done()
+			assertReception(channelName, blockSeq)
+		}(channelName, blockSeq)
+	}
+	wg.Wait()
+}
+
+func waitForBlockReception(o *nwo.Orderer, submitter *nwo.Peer, network *nwo.Network, channelName string, blockSeq int) {
+	c := commands.ChannelFetch{
+		ChannelID:  channelName,
+		Block:      "newest",
+		OutputFile: "/dev/null",
+		Orderer:    network.OrdererAddress(o, nwo.ListenPort),
+	}
+	Eventually(func() string {
+		sess, err := network.OrdererAdminSession(o, submitter, c)
+		Expect(err).NotTo(HaveOccurred())
+		Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit())
+		if sess.ExitCode() != 0 {
+			return fmt.Sprintf("exit code is %d: %s", sess.ExitCode(), string(sess.Err.Contents()))
+		}
+		sessErr := string(sess.Err.Contents())
+		expected := fmt.Sprintf("Received block: %d", blockSeq)
+		if strings.Contains(sessErr, expected) {
+			return ""
+		}
+		return sessErr
+	}, network.EventuallyTimeout, time.Second).Should(BeEmpty())
 }
