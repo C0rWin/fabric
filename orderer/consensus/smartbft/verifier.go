@@ -156,8 +156,19 @@ func (v *Verifier) verifyBlockDataAndMetadata(block *common.Block, metadata []by
 		return nil, errors.Errorf("last config in proposal is %d, expecting %d", configEnvelope.Config.Sequence, v.VerificationSequence())
 	}
 
+	signatureMetadata, err := protoutil.GetMetadataFromBlock(block, common.BlockMetadataIndex_SIGNATURES)
+	if err != nil {
+		return nil, err
+	}
+	ordererMetadataFromSignature := &common.OrdererBlockMetadata{}
+	if err := proto.Unmarshal(signatureMetadata.Value, ordererMetadataFromSignature); err != nil {
+		return nil, errors.Wrap(err, "failed unmarshaling OrdererBlockMetadata")
+	}
+
+	// Ensure the view metadata in the block signature and in the proposal are the same
+
 	metadataInBlock := &smartbftprotos.ViewMetadata{}
-	if err := proto.Unmarshal(block.Metadata.Metadata[common.BlockMetadataIndex_ORDERER], metadataInBlock); err != nil {
+	if err := proto.Unmarshal(ordererMetadataFromSignature.ConsenterMetadata, metadataInBlock); err != nil {
 		return nil, errors.Wrap(err, "failed unmarshaling smartbft metadata from block")
 	}
 
@@ -168,6 +179,28 @@ func (v *Verifier) verifyBlockDataAndMetadata(block *common.Block, metadata []by
 
 	if !proto.Equal(metadataInBlock, metadataFromProposal) {
 		return nil, errors.Errorf("expected metadata in block to be %v but got %v", metadataFromProposal, metadataInBlock)
+	}
+
+	// Verify last config
+
+	if ordererMetadataFromSignature.LastConfig == nil {
+		return nil, errors.Errorf("last config is nil")
+	}
+
+	if ordererMetadataFromSignature.LastConfig.Index != lastConfig {
+		return nil, errors.Errorf("last config in block orderer metadata points to %d but our persisted last config is %d", ordererMetadataFromSignature.LastConfig.Index, lastConfig)
+	}
+
+	rawLastConfig, err := protoutil.GetMetadataFromBlock(block, common.BlockMetadataIndex_LAST_CONFIG)
+	if err != nil {
+		return nil, err
+	}
+	lastConf := &common.LastConfig{}
+	if err := proto.Unmarshal(rawLastConfig.Value, lastConf); err != nil {
+		return nil, err
+	}
+	if lastConf.Index != lastConfig {
+		return nil, errors.Errorf("last config in block metadata points to %d but our persisted last config is %d", ordererMetadataFromSignature.LastConfig.Index, lastConfig)
 	}
 
 	return validateTransactions(block.Data.Data, v.VerifyRequest)

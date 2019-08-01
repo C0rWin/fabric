@@ -78,10 +78,14 @@ func getViewMetadataFromBlock(block *common.Block) (smartbftprotos.ViewMetadata,
 		return smartbftprotos.ViewMetadata{}, nil
 	}
 
-	ordererMetadata := protoutil.GetMetadataFromBlockOrPanic(block, common.BlockMetadataIndex_ORDERER)
+	signatureMetadata := protoutil.GetMetadataFromBlockOrPanic(block, common.BlockMetadataIndex_SIGNATURES)
+	ordererMD := &common.OrdererBlockMetadata{}
+	if err := proto.Unmarshal(signatureMetadata.Value, ordererMD); err != nil {
+		return smartbftprotos.ViewMetadata{}, errors.Wrap(err, "failed unmarshaling OrdererBlockMetadata")
+	}
 
 	var viewMetadata smartbftprotos.ViewMetadata
-	if err := proto.Unmarshal(ordererMetadata.Value, &viewMetadata); err != nil {
+	if err := proto.Unmarshal(ordererMD.ConsenterMetadata, &viewMetadata); err != nil {
 		return smartbftprotos.ViewMetadata{}, err
 	}
 

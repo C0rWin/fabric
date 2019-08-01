@@ -179,7 +179,7 @@ func bftSmartConsensusBuild(
 		SelfID:       c.SelfID,
 		N:            clusterSize,
 		BatchSize:    1,
-		BatchTimeout: 5 * time.Second,
+		BatchTimeout: 5 * time.Millisecond,
 		Logger:       flogging.MustGetLogger("orderer.consensus.smartbft.consensus"),
 		Verifier:     c.verifier,
 		Signer: &Signer{

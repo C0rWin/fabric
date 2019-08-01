@@ -37,7 +37,7 @@ func (s *Signer) SignProposal(proposal types.Proposal) *types.Signature {
 		SignatureHeader: protoutil.MarshalOrPanic(protoutil.NewSignatureHeaderOrPanic(s.SignerSerializer)),
 		OrdererBlockMetadata: protoutil.MarshalOrPanic(&common.OrdererBlockMetadata{
 			LastConfig:        &common.LastConfig{Index: uint64(proposal.VerificationSequence)},
-			ConsenterMetadata: block.Metadata.Metadata[common.BlockMetadataIndex_ORDERER],
+			ConsenterMetadata: proposal.Metadata,
 		}),
 	}
 

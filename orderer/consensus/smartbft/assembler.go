@@ -48,8 +48,14 @@ func (a *Assembler) AssembleProposal(metadata []byte, requests [][]byte) (nextPr
 	block.Metadata.Metadata[common.BlockMetadataIndex_LAST_CONFIG] = protoutil.MarshalOrPanic(&common.Metadata{
 		Value: protoutil.MarshalOrPanic(&common.LastConfig{Index: lastConfigBlock.Header.Number}),
 	})
-
-	block.Metadata.Metadata[common.BlockMetadataIndex_ORDERER] = metadata
+	block.Metadata.Metadata[common.BlockMetadataIndex_SIGNATURES] = protoutil.MarshalOrPanic(&common.Metadata{
+		Value: protoutil.MarshalOrPanic(&common.OrdererBlockMetadata{
+			ConsenterMetadata: metadata,
+			LastConfig: &common.LastConfig{
+				Index: lastConfigBlock.Header.Number,
+			},
+		}),
+	})
 
 	tuple := &ByteBufferTuple{
 		A: protoutil.MarshalOrPanic(block.Data),
