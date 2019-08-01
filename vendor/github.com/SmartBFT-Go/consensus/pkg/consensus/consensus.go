@@ -52,11 +52,6 @@ func (c *Consensus) Deliver(proposal types.Proposal, signatures []types.Signatur
 	c.Application.Deliver(proposal, signatures)
 }
 
-// Future waits until an event occurs
-type Future interface {
-	Wait()
-}
-
 func (c *Consensus) Start() {
 	requestTimeout := 2 * c.BatchTimeout // Request timeout should be at least as batch timeout
 
@@ -84,7 +79,9 @@ func (c *Consensus) Start() {
 
 	pool.SetTimeoutHandler(c.controller)
 
-	c.controller.Start(c.Metadata.ViewId, c.Metadata.LatestSequence)
+	// If we delivered to the application proposal with sequence i,
+	// then we are expecting to be proposed a proposal with sequence i+1.
+	c.controller.Start(c.Metadata.ViewId, c.Metadata.LatestSequence+1)
 }
 
 func (c *Consensus) Stop() {
