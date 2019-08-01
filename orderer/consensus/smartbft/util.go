@@ -88,17 +88,6 @@ func getViewMetadataFromBlock(block *common.Block) (smartbftprotos.ViewMetadata,
 	return viewMetadata, nil
 }
 
-func getViewMetadataLastConfigSqnFromBlock(block *common.Block) (smartbftprotos.ViewMetadata, uint64) {
-	viewMetadata, err := getViewMetadataFromBlock(block)
-	if err != nil {
-		return smartbftprotos.ViewMetadata{}, 0
-	}
-
-	sqn := protoutil.GetLastConfigIndexFromBlockOrPanic(block)
-
-	return viewMetadata, sqn
-}
-
 // RequestInspector inspects incomming requests and validates serialized identity
 type RequestInspector struct {
 	ValidateIdentityStructure func(identity *msp.SerializedIdentity) error

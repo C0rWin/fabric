@@ -9,12 +9,12 @@ package smartbft
 import (
 	"sort"
 
-	"github.com/hyperledger/fabric/protoutil"
-	"github.com/pkg/errors"
-
 	"github.com/SmartBFT-Go/consensus/smartbftprotos"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/orderer/consensus"
+	"github.com/hyperledger/fabric/protos/common"
+	"github.com/hyperledger/fabric/protoutil"
+	"github.com/pkg/errors"
 )
 
 type Synchronizer struct {
@@ -53,10 +53,21 @@ func (s *Synchronizer) Sync() (smartbftprotos.ViewMetadata, uint64) {
 	if err != nil {
 		s.logger.Warnf("Could not synchronize with remote peers, returning state from local ledger; error: %s", err)
 		block := s.support.Block(s.support.Height() - 1)
-		return getViewMetadataLastConfigSqnFromBlock(block)
+		return s.getViewMetadataLastConfigSqnFromBlock(block)
 	}
 
 	return metadata, sqn
+}
+
+func (s *Synchronizer) getViewMetadataLastConfigSqnFromBlock(block *common.Block) (smartbftprotos.ViewMetadata, uint64) {
+	viewMetadata, err := getViewMetadataFromBlock(block)
+	if err != nil {
+		return smartbftprotos.ViewMetadata{}, 0
+	}
+
+	lastConfigSqn := s.support.Sequence()
+
+	return viewMetadata, lastConfigSqn
 }
 
 func (s *Synchronizer) synchronize() (smartbftprotos.ViewMetadata, uint64, error) {
@@ -101,9 +112,10 @@ func (s *Synchronizer) synchronize() (smartbftprotos.ViewMetadata, uint64, error
 	if lastBlock == nil {
 		return smartbftprotos.ViewMetadata{}, 0, errors.Errorf("Could not retrieve block [%d] from local ledger", currentHeight-1)
 	}
-	metadata, sqn := getViewMetadataLastConfigSqnFromBlock(lastBlock)
-	s.logger.Debugf("Last block ViewMetadata=%s, lastConfigSqn=%d", metadata, sqn)
-	return metadata, sqn, nil
+	viewMetadata, lastConfigSqn := s.getViewMetadataLastConfigSqnFromBlock(lastBlock)
+	s.logger.Debugf("Last block ViewMetadata=%s, lastConfigSqn=%d", viewMetadata, lastConfigSqn)
+
+	return viewMetadata, lastConfigSqn, nil
 }
 
 // computeTargetHeight compute the target height to synchronize to.

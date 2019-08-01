@@ -10,20 +10,17 @@ import (
 	"io/ioutil"
 	"testing"
 
+	"github.com/SmartBFT-Go/consensus/smartbftprotos"
+	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/flogging"
 	mocks2 "github.com/hyperledger/fabric/orderer/consensus/mocks"
-	"go.uber.org/zap"
-
-	"github.com/SmartBFT-Go/consensus/smartbftprotos"
 	"github.com/hyperledger/fabric/orderer/consensus/smartbft"
 	"github.com/hyperledger/fabric/orderer/consensus/smartbft/mocks"
-	"github.com/stretchr/testify/require"
-
-	"github.com/golang/protobuf/proto"
-	//"github.com/hyperledger/fabric/orderer/mocks/common/multichannel"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func TestSynchronizerSync(t *testing.T) {
@@ -38,12 +35,20 @@ func TestSynchronizerSync(t *testing.T) {
 	b101 := makeConfigBlockWithMetadata(goodConfigBlock, 101, &smartbftprotos.ViewMetadata{ViewId: 2, LatestSequence: 1})
 	b102 := makeBlockWithMetadata(102, 101, &smartbftprotos.ViewMetadata{ViewId: 2, LatestSequence: 3})
 
+	blockNum2configSqn := map[uint64]uint64{
+		99:  7,
+		100: 7,
+		101: 8,
+		102: 8,
+	}
+
 	t.Run("no remotes", func(t *testing.T) {
 		bp := &mocks.FakeBlockPuller{}
 		fakeCS := &mocks2.FakeConsenterSupport{}
 		fakeCS.ChainIDReturns("mychannel")
 		fakeCS.HeightReturns(100)
 		fakeCS.BlockReturns(b99)
+		fakeCS.SequenceReturns(blockNum2configSqn[99])
 
 		syn, err := smartbft.NewSynchronizer(fakeCS, bp, 4, flogging.NewFabricLogger(zap.NewExample()))
 		require.NoError(t, err)
@@ -52,7 +57,7 @@ func TestSynchronizerSync(t *testing.T) {
 		metadata, sqn := syn.Sync()
 		assert.Equal(t, uint64(1), metadata.ViewId)
 		assert.Equal(t, uint64(12), metadata.LatestSequence)
-		assert.Equal(t, uint64(42), sqn)
+		assert.Equal(t, blockNum2configSqn[99], sqn)
 	})
 
 	t.Run("all nodes present", func(t *testing.T) {
@@ -76,6 +81,7 @@ func TestSynchronizerSync(t *testing.T) {
 		fakeCS := &mocks2.FakeConsenterSupport{}
 		fakeCS.ChainIDReturns("mychannel")
 		fakeCS.HeightCalls(func() uint64 { return height })
+		fakeCS.SequenceCalls(func() uint64 { return blockNum2configSqn[height-1] })
 		fakeCS.WriteConfigBlockCalls(func(b *common.Block, m []byte) {
 			ledger[height] = b
 			height++
@@ -95,7 +101,7 @@ func TestSynchronizerSync(t *testing.T) {
 		metadata, sqn := syn.Sync()
 		assert.Equal(t, uint64(2), metadata.ViewId)
 		assert.Equal(t, uint64(3), metadata.LatestSequence)
-		assert.Equal(t, uint64(101), sqn)
+		assert.Equal(t, blockNum2configSqn[101], sqn)
 	})
 
 	t.Run("3/4 nodes present", func(t *testing.T) {
@@ -118,6 +124,7 @@ func TestSynchronizerSync(t *testing.T) {
 		fakeCS := &mocks2.FakeConsenterSupport{}
 		fakeCS.ChainIDReturns("mychannel")
 		fakeCS.HeightCalls(func() uint64 { return height })
+		fakeCS.SequenceCalls(func() uint64 { return blockNum2configSqn[height-1] })
 		fakeCS.WriteConfigBlockCalls(func(b *common.Block, m []byte) {
 			ledger[height] = b
 			height++
@@ -137,7 +144,7 @@ func TestSynchronizerSync(t *testing.T) {
 		metadata, sqn := syn.Sync()
 		assert.Equal(t, uint64(2), metadata.ViewId)
 		assert.Equal(t, uint64(1), metadata.LatestSequence)
-		assert.Equal(t, uint64(101), sqn)
+		assert.Equal(t, blockNum2configSqn[101], sqn)
 	})
 
 	t.Run("2/4 nodes present", func(t *testing.T) {
@@ -159,6 +166,7 @@ func TestSynchronizerSync(t *testing.T) {
 		fakeCS := &mocks2.FakeConsenterSupport{}
 		fakeCS.ChainIDReturns("mychannel")
 		fakeCS.HeightCalls(func() uint64 { return height })
+		fakeCS.SequenceCalls(func() uint64 { return blockNum2configSqn[height-1] })
 		fakeCS.WriteConfigBlockCalls(func(b *common.Block, m []byte) {
 			ledger[height] = b
 			height++
@@ -178,7 +186,7 @@ func TestSynchronizerSync(t *testing.T) {
 		metadata, sqn := syn.Sync()
 		assert.Equal(t, uint64(1), metadata.ViewId)
 		assert.Equal(t, uint64(12), metadata.LatestSequence)
-		assert.Equal(t, uint64(42), sqn)
+		assert.Equal(t, blockNum2configSqn[99], sqn)
 	})
 
 	t.Run("1/4 nodes present", func(t *testing.T) {
@@ -199,6 +207,7 @@ func TestSynchronizerSync(t *testing.T) {
 		fakeCS := &mocks2.FakeConsenterSupport{}
 		fakeCS.ChainIDReturns("mychannel")
 		fakeCS.HeightCalls(func() uint64 { return height })
+		fakeCS.SequenceCalls(func() uint64 { return blockNum2configSqn[height-1] })
 		fakeCS.WriteConfigBlockCalls(func(b *common.Block, m []byte) {
 			ledger[height] = b
 			height++
@@ -218,7 +227,7 @@ func TestSynchronizerSync(t *testing.T) {
 		metadata, sqn := syn.Sync()
 		assert.Equal(t, uint64(1), metadata.ViewId)
 		assert.Equal(t, uint64(12), metadata.LatestSequence)
-		assert.Equal(t, uint64(42), sqn)
+		assert.Equal(t, blockNum2configSqn[99], sqn)
 	})
 }
 
