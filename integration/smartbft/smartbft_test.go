@@ -10,14 +10,13 @@
 package smartbft
 
 import (
-	"io/ioutil"
-	"os"
-	"syscall"
-
 	"fmt"
-
+	"io/ioutil"
+	"math/rand"
+	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	docker "github.com/fsouza/go-dockerclient"
@@ -29,6 +28,10 @@ import (
 	"github.com/onsi/gomega/gexec"
 	"github.com/tedsuo/ifrit"
 )
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
 var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 	var (
@@ -82,7 +85,9 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			assertBlockReception(map[string]int{"systemchannel": 0}, network.Orderers, peer, network)
 
 			channel := "testchannel1"
-			orderer := network.Orderer("orderer1")
+
+			orderer := network.Orderers[rand.Intn(len(network.Orderers))]
+			fmt.Fprintf(GinkgoWriter, "Picking orderer %s to create channel", orderer.Name)
 			network.CreateAndJoinChannel(orderer, channel)
 
 			nwo.DeployChaincode(network, channel, orderer, nwo.Chaincode{
@@ -104,6 +109,8 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(0))
 			Expect(sess).To(gbytes.Say("100"))
 
+			orderer = network.Orderers[rand.Intn(len(network.Orderers))]
+			fmt.Fprintf(GinkgoWriter, "Picking orderer %s to send invoke", orderer.Name)
 			invokeQuery(network, peer, orderer, channel, 90)
 
 			By("Taking down all the nodes")
@@ -115,6 +122,8 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			networkProcess = ifrit.Invoke(ordererRunner)
 			Eventually(networkProcess.Ready(), network.EventuallyTimeout).Should(BeClosed())
 
+			orderer = network.Orderers[rand.Intn(len(network.Orderers))]
+			fmt.Fprintf(GinkgoWriter, "Picking orderer %s to invoke", orderer.Name)
 			invokeQuery(network, peer, orderer, channel, 80)
 		})
 	})
