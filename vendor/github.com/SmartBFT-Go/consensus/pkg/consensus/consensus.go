@@ -45,7 +45,11 @@ type Consensus struct {
 }
 
 func (c *Consensus) Complain() {
-	panic("implement me")
+	c.Logger.Warnf("Something bad happened!")
+}
+
+func (c *Consensus) Sync() (protos.ViewMetadata, uint64) {
+	return protos.ViewMetadata{}, 0
 }
 
 func (c *Consensus) Deliver(proposal types.Proposal, signatures []types.Signature) {
@@ -71,7 +75,7 @@ func (c *Consensus) Start() {
 		Assembler:        c.Assembler,
 		Application:      c,
 		FailureDetector:  c,
-		Synchronizer:     c.Synchronizer,
+		Synchronizer:     c,
 		Comm:             c,
 		Signer:           c.Signer,
 		RequestInspector: c.RequestInspector,
@@ -96,9 +100,7 @@ func (c *Consensus) HandleMessage(sender uint64, m *protos.Message) {
 }
 
 func (c *Consensus) HandleRequest(sender uint64, req []byte) {
-	// TODO: check if we're the leader at some layer, and also verify the message,
-	// and discard it.
-	c.controller.SubmitRequest(req)
+	c.controller.HandleRequest(sender, req)
 }
 
 func (c *Consensus) SubmitRequest(req []byte) error {
