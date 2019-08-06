@@ -109,7 +109,7 @@ func (v *Verifier) VerifyConsenterSig(signature types.Signature, prop types.Prop
 	// TODO: check error
 	sig.Unmarshal(signature.Msg)
 
-	if err := v.verifySignatureIsBoundToProposal(sig, prop); err != nil {
+	if err := v.verifySignatureIsBoundToProposal(sig, identity, prop); err != nil {
 		return err
 	}
 
@@ -255,7 +255,7 @@ func validateTransactions(blockData [][]byte, verifyReq requestVerifier) ([]type
 	return res, nil
 }
 
-func (v *Verifier) verifySignatureIsBoundToProposal(sig Signature, identity []byte, prop types.Proposal) error {
+func (v *Verifier) verifySignatureIsBoundToProposal(sig *Signature, identity []byte, prop types.Proposal) error {
 	// We verify the following fields:
 	// ConsenterMetadata    []byte
 	// SignatureHeader      []byte
@@ -274,10 +274,6 @@ func (v *Verifier) verifySignatureIsBoundToProposal(sig Signature, identity []by
 	}
 	if !bytes.Equal(sigHdr.Creator, identity) {
 		return errors.Errorf("identity in signature header does not match expected identity")
-	}
-	// Ensure consenter metadata matches the proposal
-	if !bytes.Equal(sig.ConsenterMetadata, prop.Metadata) {
-		return errors.Errorf("metadata in proposal mismatches expected consenter metadata")
 	}
 
 	// Ensure orderer block metadata's consenter MD matches the proposal

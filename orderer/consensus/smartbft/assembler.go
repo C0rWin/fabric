@@ -68,7 +68,7 @@ func (a *Assembler) AssembleProposal(metadata []byte, requests [][]byte) (nextPr
 	}
 
 	prop := types.Proposal{
-		Header:               protoutil.MarshalOrPanic(block.Header),
+		Header:               protoutil.BlockHeaderBytes(block.Header),
 		Payload:              tuple.ToBytes(),
 		Metadata:             metadata,
 		VerificationSequence: int64(configEnvelope.Config.Sequence),

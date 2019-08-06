@@ -9,6 +9,8 @@ package smartbft
 import (
 	"encoding/asn1"
 
+	"math/big"
+
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/util"
@@ -18,7 +20,6 @@ import (
 )
 
 type Signature struct {
-	ConsenterMetadata    []byte
 	SignatureHeader      []byte
 	BlockHeader          []byte
 	OrdererBlockMetadata []byte
@@ -45,7 +46,6 @@ func (sig Signature) AsBytes(signer identity.Signer) []byte {
 func ProposalToBlock(proposal types.Proposal) (*common.Block, error) {
 	// initialize block with empty fields
 	block := &common.Block{
-		Header:   &common.BlockHeader{},
 		Data:     &common.BlockData{},
 		Metadata: &common.BlockMetadata{},
 	}
@@ -53,8 +53,17 @@ func ProposalToBlock(proposal types.Proposal) (*common.Block, error) {
 	if len(proposal.Header) == 0 {
 		return nil, errors.New("proposal header cannot be nil")
 	}
-	if err := proto.Unmarshal(proposal.Header, block.Header); err != nil {
+
+	hdr := &asn1Header{}
+
+	if _, err := asn1.Unmarshal(proposal.Header, hdr); err != nil {
 		return nil, errors.Wrap(err, "bad header")
+	}
+
+	block.Header = &common.BlockHeader{
+		Number:       hdr.Number.Uint64(),
+		PreviousHash: hdr.PreviousHash,
+		DataHash:     hdr.DataHash,
 	}
 
 	if len(proposal.Payload) == 0 {
@@ -74,4 +83,10 @@ func ProposalToBlock(proposal types.Proposal) (*common.Block, error) {
 		return nil, errors.Wrap(err, "bad metadata")
 	}
 	return block, nil
+}
+
+type asn1Header struct {
+	Number       *big.Int
+	PreviousHash []byte
+	DataHash     []byte
 }

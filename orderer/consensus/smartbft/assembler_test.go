@@ -172,7 +172,7 @@ func proposalFromRequests(seq, lastConfigSeq uint64, lastBlockHash, metadata []b
 	}
 
 	return types.Proposal{
-		Header:               protoutil.MarshalOrPanic(block.Header),
+		Header:               protoutil.BlockHeaderBytes(block.Header),
 		Payload:              tuple.ToBytes(),
 		Metadata:             metadata,
 		VerificationSequence: int64(lastConfigSeq),
