@@ -10,6 +10,8 @@ import (
 	"encoding/hex"
 	"sync"
 
+	"bytes"
+
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	"github.com/SmartBFT-Go/consensus/smartbftprotos"
 	"github.com/golang/protobuf/proto"
@@ -104,7 +106,12 @@ func (v *Verifier) VerifyConsenterSig(signature types.Signature, prop types.Prop
 	}
 
 	sig := &Signature{}
+	// TODO: check error
 	sig.Unmarshal(signature.Msg)
+
+	if err := v.verifySignatureIsBoundToProposal(sig, prop); err != nil {
+		return err
+	}
 
 	expectedMsgToBeSigned := util.ConcatenateBytes(sig.OrdererBlockMetadata, sig.SignatureHeader, sig.BlockHeader)
 	return v.BlockVerifier.VerifyBlockSignature([]*protoutil.SignedData{{
@@ -246,4 +253,71 @@ func validateTransactions(blockData [][]byte, verifyReq requestVerifier) ([]type
 	}
 
 	return res, nil
+}
+
+func (v *Verifier) verifySignatureIsBoundToProposal(sig Signature, identity []byte, prop types.Proposal) error {
+	// We verify the following fields:
+	// ConsenterMetadata    []byte
+	// SignatureHeader      []byte
+	// BlockHeader          []byte
+	// OrdererBlockMetadata []byte
+
+	// Ensure block header is equal
+	if !bytes.Equal(prop.Header, sig.BlockHeader) {
+		return errors.Errorf("mismatched block header")
+	}
+
+	// Ensure signature header matches the identity
+	sigHdr := &common.SignatureHeader{}
+	if err := proto.Unmarshal(sig.SignatureHeader, sigHdr); err != nil {
+		return errors.Wrap(err, "malformed signature header")
+	}
+	if !bytes.Equal(sigHdr.Creator, identity) {
+		return errors.Errorf("identity in signature header does not match expected identity")
+	}
+	// Ensure consenter metadata matches the proposal
+	if !bytes.Equal(sig.ConsenterMetadata, prop.Metadata) {
+		return errors.Errorf("metadata in proposal mismatches expected consenter metadata")
+	}
+
+	// Ensure orderer block metadata's consenter MD matches the proposal
+	ordererMD := &common.OrdererBlockMetadata{}
+	if err := proto.Unmarshal(sig.OrdererBlockMetadata, ordererMD); err != nil {
+		return errors.Wrap(err, "malformed orderer metadata in signature")
+	}
+
+	if !bytes.Equal(ordererMD.ConsenterMetadata, prop.Metadata) {
+		return errors.Errorf("consenter metadata in OrdererBlockMetadata doesn't match proposal")
+	}
+
+	block, err := ProposalToBlock(prop)
+	if err != nil {
+		v.Logger.Warnf("got malformed proposal: %v", err)
+		return err
+	}
+
+	// Ensure Metadata slice is of the right size
+	if len(block.Metadata.Metadata) != len(common.BlockMetadataIndex_name) {
+		return errors.Errorf("block metadata is of size %d but should be of size %d",
+			len(block.Metadata.Metadata), len(common.BlockMetadataIndex_name))
+	}
+
+	signatureMetadata := &common.Metadata{}
+	if err := proto.Unmarshal(block.Metadata.Metadata[common.BlockMetadataIndex_SIGNATURES], signatureMetadata); err != nil {
+		return errors.Wrap(err, "malformed signature metadata")
+	}
+
+	ordererMDFromBlock := &common.OrdererBlockMetadata{}
+	if err := proto.Unmarshal(sig.OrdererBlockMetadata, ordererMDFromBlock); err != nil {
+		return errors.Wrap(err, "malformed orderer metadata in block")
+	}
+
+	// Ensure the block's OrdererBlockMetadata matches the signature.
+	if !proto.Equal(ordererMDFromBlock, ordererMD) {
+		return errors.Errorf("signature's OrdererBlockMetadata and OrdererBlockMetadata extracted from block do not match")
+	}
+
+	// TODO: Check last config block
+
+	return nil
 }
