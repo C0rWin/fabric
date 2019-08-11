@@ -7,10 +7,9 @@ SPDX-License-Identifier: Apache-2.0
 package smartbft
 
 import (
+	"bytes"
 	"encoding/hex"
 	"sync"
-
-	"bytes"
 
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	"github.com/SmartBFT-Go/consensus/smartbftprotos"

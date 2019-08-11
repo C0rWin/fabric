@@ -8,7 +8,6 @@ package smartbft
 
 import (
 	"encoding/asn1"
-
 	"math/big"
 
 	"github.com/SmartBFT-Go/consensus/pkg/types"
