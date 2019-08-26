@@ -152,6 +152,8 @@ func (c *Consenter) HandleChain(support consensus.ConsenterSupport, metadata *co
 	id2Identies := map[uint64][]byte{}
 	for _, consenter := range m.Consenters {
 
+		id2Identies[consenter.ConsenterId] = consenter.Identity
+
 		// No need to know yourself
 		if selfID == consenter.ConsenterId {
 			continue
@@ -171,7 +173,6 @@ func (c *Consenter) HandleChain(support consensus.ConsenterSupport, metadata *co
 			ServerTLSCert: serverCertAsDER,
 			Endpoint:      fmt.Sprintf("%s:%d", consenter.Host, consenter.Port),
 		})
-		id2Identies[consenter.ConsenterId] = consenter.Identity
 	}
 
 	// build configuration bundle to get policy manager

@@ -175,9 +175,8 @@ func bftSmartConsensusBuild(
 
 	clusterSize := uint64(len(nodes))
 
-	return &smartbft.Consensus{
+	consensus := &smartbft.Consensus{
 		SelfID:       c.SelfID,
-		N:            clusterSize,
 		BatchSize:    1,
 		BatchTimeout: 5 * time.Millisecond,
 		Logger:       flogging.MustGetLogger("orderer.consensus.smartbft.consensus"),
@@ -214,7 +213,17 @@ func bftSmartConsensusBuild(
 				Timeout:       5 * time.Minute, // Externalize configuration
 			},
 		},
+		Scheduler:        time.NewTicker(time.Second).C,
+		ResendViewChange: time.NewTicker(time.Second).C,
 	}
+
+	proposal, signatures := c.lastPersistedProposalAndSignatures()
+	if proposal != nil {
+		consensus.LastProposal = *proposal
+		consensus.LastSignatures = signatures
+	}
+
+	return consensus
 }
 
 func verifierBuild(
@@ -340,6 +349,58 @@ func (c *BFTChain) Start() {
 
 func (c *BFTChain) Halt() {
 
+}
+
+func (c *BFTChain) lastPersistedProposalAndSignatures() (*types.Proposal, []types.Signature) {
+	lastBlock := lastBlockFromLedgerOrPanic(c.support, c.Logger)
+
+	proposal := &types.Proposal{
+		Header: protoutil.BlockHeaderBytes(lastBlock.Header),
+		Payload: (&ByteBufferTuple{
+			A: protoutil.MarshalOrPanic(lastBlock.Data),
+			B: protoutil.MarshalOrPanic(lastBlock.Metadata),
+		}).ToBytes(),
+	}
+
+	if lastBlock.Header.Number == 0 {
+		return proposal, nil
+	}
+
+	signatureMetadata := &common.Metadata{}
+	if err := proto.Unmarshal(lastBlock.Metadata.Metadata[common.BlockMetadataIndex_SIGNATURES], signatureMetadata); err != nil {
+		c.Logger.Panicf("Failed unmarshaling signatures from block metadata: %v", err)
+	}
+
+	ordererMDFromBlock := &common.OrdererBlockMetadata{}
+	if err := proto.Unmarshal(signatureMetadata.Value, ordererMDFromBlock); err != nil {
+		c.Logger.Panicf("Failed unmarshaling OrdererBlockMetadata from block signature metadata: %v", err)
+	}
+
+	proposal.Metadata = ordererMDFromBlock.ConsenterMetadata
+
+	var signatures []types.Signature
+	for _, sigMD := range signatureMetadata.Signatures {
+		sigHdr := &common.SignatureHeader{}
+		if err := proto.Unmarshal(sigMD.SignatureHeader, sigHdr); err != nil {
+			c.Logger.Panicf("Failed unmarshaling signature header: %v", err)
+		}
+
+		id, found := c.ID2Identities.IdentityToID(sigHdr.Creator)
+		if !found {
+			c.Logger.Panicf("Didn't find identity corresponding to %s", string(sigHdr.Creator))
+		}
+		sig := &Signature{
+			SignatureHeader:      sigMD.SignatureHeader,
+			BlockHeader:          protoutil.BlockHeaderBytes(lastBlock.Header),
+			OrdererBlockMetadata: signatureMetadata.Value,
+		}
+		signatures = append(signatures, types.Signature{
+			Msg:   sig.Marshal(),
+			Value: sigMD.Signature,
+			Id:    id,
+		})
+	}
+	return proposal, signatures
 }
 
 type chainACL struct {

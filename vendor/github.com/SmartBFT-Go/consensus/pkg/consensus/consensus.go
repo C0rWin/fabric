@@ -8,8 +8,6 @@ package consensus
 import (
 	"time"
 
-	"sync"
-
 	algorithm "github.com/SmartBFT-Go/consensus/internal/bft"
 	bft "github.com/SmartBFT-Go/consensus/pkg/api"
 	"github.com/SmartBFT-Go/consensus/pkg/types"
@@ -25,7 +23,6 @@ const (
 // The proposals contain batches of requests assembled together by the Assembler.
 type Consensus struct {
 	SelfID       uint64
-	N            uint64
 	BatchSize    int
 	BatchTimeout time.Duration
 	bft.Comm
@@ -39,17 +36,19 @@ type Consensus struct {
 	Synchronizer      bft.Synchronizer
 	Logger            bft.Logger
 	Metadata          protos.ViewMetadata
+	LastProposal      types.Proposal
+	LastSignatures    []types.Signature
+	Scheduler         <-chan time.Time
+	ResendViewChange  <-chan time.Time
 
-	controller         *algorithm.Controller
-	restoreOnceFromWAL sync.Once
+	viewChanger *algorithm.ViewChanger
+	controller  *algorithm.Controller
+	state       *algorithm.PersistedState
+	n           uint64
 }
 
-func (c *Consensus) Complain() {
-	c.Logger.Warnf("Something bad happened!")
-}
-
-func (c *Consensus) Sync() (protos.ViewMetadata, uint64) {
-	return protos.ViewMetadata{}, 0
+func (c *Consensus) Complain(stopView bool) {
+	c.viewChanger.StartViewChange(stopView)
 }
 
 func (c *Consensus) Deliver(proposal types.Proposal, signatures []types.Signature) {
@@ -57,42 +56,82 @@ func (c *Consensus) Deliver(proposal types.Proposal, signatures []types.Signatur
 }
 
 func (c *Consensus) Start() {
-	requestTimeout := 2 * c.BatchTimeout // Request timeout should be at least as batch timeout
+	// requestTimeout := 2 * c.BatchTimeout // Request timeout should be at least as batch timeout
 	opts := algorithm.PoolOptions{
 		QueueSize:         DefaultRequestPoolSize,
-		RequestTimeout:    requestTimeout,
-		LeaderFwdTimeout:  requestTimeout,
-		AutoRemoveTimeout: requestTimeout,
+		RequestTimeout:    algorithm.DefaultRequestTimeout / 100,
+		LeaderFwdTimeout:  algorithm.DefaultRequestTimeout / 5,
+		AutoRemoveTimeout: algorithm.DefaultRequestTimeout,
+	}
+
+	c.n = uint64(len(c.Nodes()))
+
+	inFlight := algorithm.InFlightData{}
+
+	c.state = &algorithm.PersistedState{
+		InFlightProposal: &inFlight,
+		Entries:          c.WALInitialContent,
+		Logger:           c.Logger,
+		WAL:              c.WAL,
+	}
+
+	cpt := types.Checkpoint{}
+	cpt.Set(c.LastProposal, c.LastSignatures)
+
+	c.viewChanger = &algorithm.ViewChanger{
+		SelfID:      c.SelfID,
+		N:           c.n,
+		Logger:      c.Logger,
+		Comm:        c,
+		Signer:      c.Signer,
+		Verifier:    c.Verifier,
+		Application: c,
+		Checkpoint:  &cpt,
+		InFlight:    &inFlight,
+		// Controller later
+		// RequestsTimer later
+		ResendTicker: c.ResendViewChange,
 	}
 
 	c.controller = &algorithm.Controller{
-		ProposerBuilder:  c,
+		Checkpoint:       &cpt,
 		WAL:              c.WAL,
 		ID:               c.SelfID,
-		N:                c.N,
-		RequestTimeout:   requestTimeout,
+		N:                c.n,
 		Verifier:         c.Verifier,
 		Logger:           c.Logger,
 		Assembler:        c.Assembler,
 		Application:      c,
 		FailureDetector:  c,
-		Synchronizer:     c,
+		Synchronizer:     c.Synchronizer,
 		Comm:             c,
 		Signer:           c.Signer,
 		RequestInspector: c.RequestInspector,
+		ViewChanger:      c.viewChanger,
 	}
+
+	c.viewChanger.Synchronizer = c.controller
+
+	c.controller.ProposerBuilder = c.proposalMaker()
 
 	pool := algorithm.NewPool(c.Logger, c.RequestInspector, c.controller, opts)
 	batchBuilder := algorithm.NewBatchBuilder(pool, c.BatchSize, c.BatchTimeout)
+	leaderMonitor := algorithm.NewHeartbeatMonitor(c.Scheduler, c.Logger, algorithm.DefaultHeartbeatTimeout, c, c.controller)
 	c.controller.RequestPool = pool
 	c.controller.Batcher = batchBuilder
+	c.controller.LeaderMonitor = leaderMonitor
+
+	c.viewChanger.Controller = c.controller
+	c.viewChanger.RequestsTimer = pool
 
 	// If we delivered to the application proposal with sequence i,
 	// then we are expecting to be proposed a proposal with sequence i+1.
+	c.viewChanger.Start(c.Metadata.ViewId)
 	c.controller.Start(c.Metadata.ViewId, c.Metadata.LatestSequence+1)
 }
 
 func (c *Consensus) Stop() {
+	c.viewChanger.Stop()
 	c.controller.Stop()
 }
 
@@ -119,41 +158,17 @@ func (c *Consensus) BroadcastConsensus(m *protos.Message) {
 	}
 }
 
-func (c *Consensus) NewProposer(leader, proposalSequence, viewNum uint64, quorumSize int) algorithm.Proposer {
-	persistedState := &algorithm.PersistedState{
-		Entries: c.WALInitialContent,
-		Logger:  c.Logger,
-		WAL:     c.WAL,
+func (c *Consensus) proposalMaker() *algorithm.ProposalMaker {
+	return &algorithm.ProposalMaker{
+		State:           c.state,
+		Comm:            c,
+		Decider:         c.controller,
+		Logger:          c.Logger,
+		Signer:          c.Signer,
+		SelfID:          c.SelfID,
+		Sync:            c.controller,
+		FailureDetector: c,
+		Verifier:        c.Verifier,
+		N:               c.n,
 	}
-
-	view := &algorithm.View{
-		N:                c.N,
-		LeaderID:         leader,
-		SelfID:           c.SelfID,
-		Quorum:           quorumSize,
-		Number:           viewNum,
-		Decider:          c.controller,
-		FailureDetector:  c.controller.FailureDetector,
-		Sync:             c.Synchronizer,
-		Logger:           c.Logger,
-		Comm:             c,
-		Verifier:         c.Verifier,
-		Signer:           c.Signer,
-		ProposalSequence: proposalSequence,
-		State:            persistedState,
-	}
-
-	c.restoreOnceFromWAL.Do(func() {
-		persistedState.Restore(view)
-	})
-
-	if proposalSequence > view.ProposalSequence {
-		view.ProposalSequence = proposalSequence
-	}
-
-	if viewNum > view.Number {
-		view.Number = viewNum
-	}
-
-	return view
 }

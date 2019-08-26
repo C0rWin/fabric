@@ -41,6 +41,15 @@ type requestVerifier func(req []byte) (types.RequestInfo, error)
 
 type NodeIdentitiesByID map[uint64][]byte
 
+func (nibd NodeIdentitiesByID) IdentityToID(identity []byte) (uint64, bool) {
+	for id, currIdentity := range nibd {
+		if bytes.Equal(currIdentity, identity) {
+			return id, true
+		}
+	}
+	return 0, false
+}
+
 type Verifier struct {
 	ReqInspector           *RequestInspector
 	Id2Identity            NodeIdentitiesByID

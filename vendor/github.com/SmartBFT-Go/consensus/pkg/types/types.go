@@ -10,13 +10,16 @@ import (
 	"encoding/asn1"
 	"encoding/hex"
 	"fmt"
+	"sync"
+
+	"github.com/SmartBFT-Go/consensus/smartbftprotos"
 )
 
 type Proposal struct {
 	Payload              []byte
 	Header               []byte
 	Metadata             []byte
-	VerificationSequence int64
+	VerificationSequence int64 // int64 for asn1 marshaling
 }
 
 type Signature struct {
@@ -54,4 +57,40 @@ func computeDigest(rawBytes []byte) string {
 	h.Write(rawBytes)
 	digest := h.Sum(nil)
 	return hex.EncodeToString(digest)
+}
+
+type Checkpoint struct {
+	lock       sync.RWMutex
+	proposal   Proposal
+	signatures []Signature
+}
+
+func (c *Checkpoint) Get() (smartbftprotos.Proposal, []*smartbftprotos.Signature) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	p := smartbftprotos.Proposal{
+		Header:               c.proposal.Header,
+		Payload:              c.proposal.Payload,
+		Metadata:             c.proposal.Metadata,
+		VerificationSequence: uint64(c.proposal.VerificationSequence),
+	}
+
+	var signatures []*smartbftprotos.Signature
+	for _, sig := range c.signatures {
+		signatures = append(signatures, &smartbftprotos.Signature{
+			Msg:    sig.Msg,
+			Value:  sig.Value,
+			Signer: sig.Id,
+		})
+	}
+	return p, signatures
+}
+
+func (c *Checkpoint) Set(proposal Proposal, signatures []Signature) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.proposal = proposal
+	c.signatures = signatures
 }

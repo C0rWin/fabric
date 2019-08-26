@@ -6,7 +6,6 @@
 package bft
 
 import (
-	"encoding/asn1"
 	"fmt"
 	"sync"
 
@@ -29,8 +28,8 @@ const (
 //go:generate mockery -dir . -name State -case underscore -output ./mocks/
 
 type State interface {
-	// Save saves the current message.
-	Save(message *protos.Message) error
+	// Save saves a message.
+	Save(message *protos.SavedMessage) error
 
 	// Restore restores the given view to its latest state
 	// before a crash, if applicable.
@@ -51,7 +50,7 @@ type View struct {
 	Number           uint64
 	Decider          Decider
 	FailureDetector  FailureDetector
-	Sync             api.Synchronizer
+	Sync             Synchronizer
 	Logger           api.Logger
 	Comm             Comm
 	Verifier         api.Verifier
@@ -60,11 +59,12 @@ type View struct {
 	State            State
 	Phase            Phase
 	// Runtime
-	incMsgs           chan *incMsg
-	myProposalSig     *types.Signature
-	inFlightProposal  *types.Proposal
-	inFlightRequests  []types.RequestInfo
-	lastBroadcastSent *protos.Message
+	lastVotedProposalByID map[uint64]protos.Commit
+	incMsgs               chan *incMsg
+	myProposalSig         *types.Signature
+	inFlightProposal      *types.Proposal
+	inFlightRequests      []types.RequestInfo
+	lastBroadcastSent     *protos.Message
 	// Current sequence sent prepare and commit
 	currPrepareSent *protos.Message
 	currCommitSent  *protos.Message
@@ -90,7 +90,7 @@ func (v *View) Start() {
 	v.stopOnce = sync.Once{}
 	v.incMsgs = make(chan *incMsg, 10*v.N) // TODO channel size should be configured
 	v.abortChan = make(chan struct{})
-
+	v.lastVotedProposalByID = make(map[uint64]protos.Commit)
 	v.viewEnded.Add(1)
 
 	v.prePrepare = make(chan *protos.Message, 1)
@@ -153,15 +153,21 @@ func (v *View) HandleMessage(sender uint64, m *protos.Message) {
 }
 
 func (v *View) processMsg(sender uint64, m *protos.Message) {
+	if v.stopped() {
+		return
+	}
 	// Ensure view number is equal to our view
 	msgViewNum := viewNumber(m)
+	msgProposalSeq := proposalSequence(m)
+
 	if msgViewNum != v.Number {
 		v.Logger.Warnf("%d got message %v from %d of view %d, expected view %d", v.SelfID, m, sender, msgViewNum, v.Number)
 		// TODO  when do we send the error message?
 		if sender != v.LeaderID {
+			v.discoverIfSyncNeeded(sender, m)
 			return
 		}
-		v.FailureDetector.Complain()
+		v.FailureDetector.Complain(false)
 		// Else, we got a message with a wrong view from the leader.
 		if msgViewNum > v.Number {
 			v.Sync.Sync()
@@ -169,8 +175,6 @@ func (v *View) processMsg(sender uint64, m *protos.Message) {
 		v.stop()
 		return
 	}
-
-	msgProposalSeq := proposalSequence(m)
 
 	if msgProposalSeq == v.ProposalSequence-1 && v.ProposalSequence > 0 {
 		v.handlePrevSeqMessage(msgProposalSeq, sender, m)
@@ -181,6 +185,7 @@ func (v *View) processMsg(sender uint64, m *protos.Message) {
 	// This message is either for this proposal or the next one (we might be behind the rest)
 	if msgProposalSeq != v.ProposalSequence && msgProposalSeq != v.ProposalSequence+1 {
 		v.Logger.Warnf("%d got message from %d with sequence %d but our sequence is %d", v.SelfID, sender, msgProposalSeq, v.ProposalSequence)
+		v.discoverIfSyncNeeded(sender, m)
 		return
 	}
 
@@ -322,7 +327,7 @@ func (v *View) processProposal() Phase {
 	requests, err := v.verifyProposal(proposal)
 	if err != nil {
 		v.Logger.Warnf("%d received bad proposal from %d: %v", v.SelfID, v.LeaderID, err)
-		v.FailureDetector.Complain()
+		v.FailureDetector.Complain(false)
 		v.Sync.Sync()
 		v.stop()
 		return ABORT
@@ -334,7 +339,15 @@ func (v *View) processProposal() Phase {
 
 	// We are about to send a prepare for a pre-prepare,
 	// so we record the pre-prepare.
-	v.State.Save(receivedProposal)
+	savedMsg := &protos.SavedMessage{
+		Content: &protos.SavedMessage_ProposedRecord{
+			ProposedRecord: &protos.ProposedRecord{
+				PrePrepare: receivedProposal.GetPrePrepare(),
+				Prepare:    prepareMessage.GetPrepare(),
+			},
+		},
+	}
+	v.State.Save(savedMsg)
 	v.lastBroadcastSent = prepareMessage
 	v.currPrepareSent = proto.Clone(prepareMessage).(*protos.Message)
 	v.currPrepareSent.GetPrepare().Assist = true
@@ -350,61 +363,23 @@ func (v *View) processProposal() Phase {
 }
 
 func (v *View) createPrepare(seq uint64, proposal types.Proposal) *protos.Message {
-	signature := v.Signer.Sign(TBSPrepare{
-		Seq:    int64(seq),
-		View:   int64(v.Number),
-		Digest: proposal.Digest(),
-	}.ToBytes())
-
 	return &protos.Message{
 		Content: &protos.Message_Prepare{
 			Prepare: &protos.Prepare{
-				Seq:       seq,
-				View:      v.Number,
-				Digest:    proposal.Digest(),
-				Signature: signature,
+				Seq:    seq,
+				View:   v.Number,
+				Digest: proposal.Digest(),
 			},
 		},
 	}
 }
 
-func (v *View) isPrepareValid(vote *vote, expectedMsg []byte) bool {
-	prepare := vote.GetPrepare()
-	err := v.Verifier.VerifySignature(types.Signature{
-		Value: prepare.Signature,
-		Msg:   expectedMsg,
-		Id:    vote.sender,
-	})
-
-	if err == nil {
-		return true
-	}
-	v.Logger.Warnf("Failed verifying vote %v from %v: %v", prepare, vote.sender, err)
-	return false
-}
-
 func (v *View) processPrepares() Phase {
 	proposal := v.inFlightProposal
 	expectedDigest := proposal.Digest()
-	collectedDigests := 0
 
 	var voterIDs []uint64
-	var collectedValidVotes []*protos.Prepare
-	validVotes := make(chan *vote, cap(v.prepares.votes))
-	expectedMsg := TBSPrepare{
-		Seq:    int64(v.ProposalSequence),
-		View:   int64(v.Number),
-		Digest: proposal.Digest(),
-	}.ToBytes()
-
-	verifyVote := func(vote *vote) {
-		if !v.isPrepareValid(vote, expectedMsg) {
-			return
-		}
-		validVotes <- vote
-	}
-
-	for collectedDigests < v.Quorum-1 {
+	for len(voterIDs) < v.Quorum-1 {
 		select {
 		case <-v.abortChan:
 			return ABORT
@@ -417,21 +392,17 @@ func (v *View) processPrepares() Phase {
 				v.Logger.Warnf("Got wrong digest at processPrepares for prepare with seq %d, expecting %v but got %v, we are in seq %d", prepare.Seq, expectedDigest, prepare.Digest, seq)
 				continue
 			}
-			go verifyVote(vote)
-		case vote := <-validVotes:
-			collectedDigests++
 			voterIDs = append(voterIDs, vote.sender)
-			collectedValidVotes = append(collectedValidVotes, vote.GetPrepare())
 		}
 	}
 
-	v.Logger.Infof("%d collected %d prepares from %v", v.SelfID, collectedDigests, voterIDs)
+	v.Logger.Infof("%d collected %d prepares from %v", v.SelfID, len(voterIDs), voterIDs)
 
 	v.myProposalSig = v.Signer.SignProposal(*proposal)
 
 	seq := v.ProposalSequence
 
-	msg := &protos.Message{
+	commitMsg := &protos.Message{
 		Content: &protos.Message_Commit{
 			Commit: &protos.Commit{
 				View:   v.Number,
@@ -446,12 +417,18 @@ func (v *View) processPrepares() Phase {
 		},
 	}
 
+	preparedProof := &protos.SavedMessage{
+		Content: &protos.SavedMessage_Commit{
+			Commit: commitMsg,
+		},
+	}
+
 	// We received enough prepares to send a commit.
 	// Save the commit message we are about to send.
-	v.State.Save(msg)
-	v.currCommitSent = proto.Clone(msg).(*protos.Message)
+	v.State.Save(preparedProof)
+	v.currCommitSent = proto.Clone(commitMsg).(*protos.Message)
 	v.currCommitSent.GetCommit().Assist = true
-	v.lastBroadcastSent = msg
+	v.lastBroadcastSent = commitMsg
 
 	v.Logger.Infof("Processed prepares for proposal with seq %d", seq)
 	return PREPARED
@@ -564,6 +541,68 @@ func (v *View) handlePrevSeqMessage(msgProposalSeq, sender uint64, m *protos.Mes
 	v.Logger.Debugf("Got %s for previous sequence (%d) from %d, %s", msgType, msgProposalSeq, sender, prevMsgFound)
 }
 
+func (v *View) discoverIfSyncNeeded(sender uint64, m *protos.Message) {
+	// We're only interested in commit messages.
+	commit := m.GetCommit()
+	if commit == nil {
+		return
+	}
+
+	// To commit a block we need 2f + 1 votes.
+	// at least f+1 of them are honest and will broadcast
+	// their commits to votes to everyone including us.
+	// In each such a threshold of f+1 votes there is at least
+	// a single honest node that prepared for a proposal
+	// which we apparently missed.
+	_, f := computeQuorum(v.N)
+	threshold := f + 1
+
+	v.lastVotedProposalByID[sender] = *commit
+
+	v.Logger.Debugf("Got commit of seq %d in view %d from %d while being in seq %d in view %d",
+		commit.Seq, commit.View, sender, v.ProposalSequence, v.Number)
+
+	// If we haven't reached a threshold of proposals yet, abort.
+	if len(v.lastVotedProposalByID) < threshold {
+		return
+	}
+
+	// Make a histogram out of all current seen votes.
+	countsByVotes := make(map[proposalInfo]int)
+	for _, vote := range v.lastVotedProposalByID {
+		info := proposalInfo{
+			digest: vote.Digest,
+			view:   vote.View,
+			seq:    vote.Seq,
+		}
+		countsByVotes[info]++
+	}
+
+	// Check if there is a <digest, view, seq> that collected a threshold of votes,
+	// and that sequence is higher than our current sequence, or our view is different.
+	for vote, count := range countsByVotes {
+		if count < threshold {
+			continue
+		}
+
+		// Disregard votes for past views.
+		if vote.view < v.Number {
+			continue
+		}
+
+		// Disregard votes for past sequences for this view.
+		if vote.seq <= v.ProposalSequence && vote.view == v.Number {
+			continue
+		}
+
+		v.Logger.Warnf("Seen %d votes for digest %s in view %d, sequence %d but I am in view %d and seq %d",
+			count, vote.digest, vote.view, vote.seq, v.Number, v.ProposalSequence)
+		v.stop()
+		v.Sync.Sync()
+		return
+	}
+}
+
 type voteVerifier struct {
 	v              *View
 	proposal       *types.Proposal
@@ -596,9 +635,9 @@ func (vv *voteVerifier) verifyVote(vote *protos.Message) {
 }
 
 func (v *View) decide(proposal *types.Proposal, signatures []types.Signature, requests []types.RequestInfo) {
+	v.Logger.Infof("Deciding on seq %d", v.ProposalSequence)
 	// first make preparations for the next sequence so that the view will be ready to continue right after delivery
 	v.startNextSeq()
-	v.Logger.Infof("Deciding on seq %d", v.ProposalSequence)
 	signatures = append(signatures, *v.myProposalSig)
 	v.Decider.Decide(*proposal, signatures, requests)
 }
@@ -686,57 +725,11 @@ func (v *View) Abort() {
 	v.viewEnded.Wait()
 }
 
-type vote struct {
-	*protos.Message
-	sender uint64
-}
-
-type voteSet struct {
-	validVote func(voter uint64, message *protos.Message) bool
-	voted     map[uint64]struct{}
-	votes     chan *vote
-}
-
-func (vs *voteSet) clear(n uint64) {
-	// Drain the votes channel
-	for len(vs.votes) > 0 {
-		<-vs.votes
+func (v *View) stopped() bool {
+	select {
+	case <-v.abortChan:
+		return true
+	default:
+		return false
 	}
-
-	vs.voted = make(map[uint64]struct{}, n)
-	vs.votes = make(chan *vote, n)
-}
-
-func (vs *voteSet) registerVote(voter uint64, message *protos.Message) {
-	if !vs.validVote(voter, message) {
-		return
-	}
-
-	_, hasVoted := vs.voted[voter]
-	if hasVoted {
-		// Received double vote
-		return
-	}
-
-	vs.voted[voter] = struct{}{}
-	vs.votes <- &vote{Message: message, sender: voter}
-}
-
-type incMsg struct {
-	*protos.Message
-	sender uint64
-}
-
-type TBSPrepare struct {
-	View   int64
-	Seq    int64
-	Digest string
-}
-
-func (tbsp TBSPrepare) ToBytes() []byte {
-	bytes, err := asn1.Marshal(tbsp)
-	if err != nil {
-		panic(errors.Errorf("failed marshaling prepare %v: %v", tbsp, err))
-	}
-	return bytes
 }
