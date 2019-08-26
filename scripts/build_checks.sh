@@ -12,7 +12,7 @@ else
     exit 1
 fi
 
-unformatted=$(find . -name "*.go" | grep -v "^./vendor" | grep -v "pb.go" | grep "./orderer" |xargs goimports -l)
+unformatted=$(git show --name-only | grep ".go$" | grep -v "^./vendor" | grep -v "pb.go" | grep "./orderer" |xargs goimports -l)
 
 if [[ $unformatted == "" ]];then
     echo "goimports checks passed"
