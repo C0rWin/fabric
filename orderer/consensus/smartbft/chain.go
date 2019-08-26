@@ -9,7 +9,6 @@ package smartbft
 import (
 	"encoding/hex"
 	"fmt"
-	"io"
 	"time"
 
 	smartbft "github.com/SmartBFT-Go/consensus/pkg/consensus"
@@ -136,41 +135,10 @@ func bftSmartConsensusBuild(
 	var consensusWAL *wal.WriteAheadLogFile
 	var walInitState [][]byte
 
-	c.Logger.Infof("Creating a wal %s", c.WALDir)
-	consensusWAL, err = wal.Create(c.Logger, c.WALDir, wal.DefaultOptions())
+	c.Logger.Infof("Initializing a WAL for chain %s, on dir: %s", c.support.ChainID(), c.WALDir)
+	consensusWAL, walInitState, err = wal.InitializeAndReadAll(c.Logger, c.WALDir, wal.DefaultOptions())
 	if err != nil {
-		if err != wal.ErrWALAlreadyExists {
-			c.Logger.Panicf("failed to create WAL for chain %s, err %s", c.support.ChainID(), err)
-		}
-
-		c.Logger.Infof("WAL %s already exists", c.WALDir)
-		// if wal already exists we need to open it
-		consensusWAL, err = wal.Open(c.Logger, c.WALDir, wal.DefaultOptions())
-		if err != nil {
-			c.Logger.Panicf("failed to open WAL for chain %s, err %s", c.support.ChainID(), err)
-		}
-
-		// since wall existed we also need to read recent entries
-
-		c.Logger.Info("Reading WAL entries")
-		walInitState, err = consensusWAL.ReadAll()
-		if err != nil {
-			c.Logger.Infof("got error while reading WAL entries, err %s", err)
-			if err != io.ErrUnexpectedEOF {
-				c.Logger.Panicf("Cannot read entries from WAL for chain %s, err %s", c.support.ChainID(), err)
-			}
-			// got ErrUnexpectedEOF, let's try to repair
-			c.Logger.Infof("trying to repair WAL %s", c.WALDir)
-			err = wal.Repair(c.Logger, c.WALDir)
-			if err != nil {
-				c.Logger.Panicf("WAL for chain %s cannot be repaired, err %s", c.support.ChainID(), err)
-			}
-			c.Logger.Info("Reading WAL entries after repair")
-			walInitState, err = consensusWAL.ReadAll()
-			if err != nil {
-				c.Logger.Panicf("Cannot read entries from WAL for chain %s, err %s", c.support.ChainID(), err)
-			}
-		}
+		c.Logger.Panicf("failed to initialize a WAL for chain %s, err %s", c.support.ChainID(), err)
 	}
 
 	clusterSize := uint64(len(nodes))
