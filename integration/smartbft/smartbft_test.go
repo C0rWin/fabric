@@ -286,11 +286,6 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 				Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(0))
 			}
 
-			By("Waiting for a view change")
-			Eventually(ordererRunners[1].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("the new view is 1 channel=testchannel1"))
-			Eventually(ordererRunners[2].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("the new view is 1 channel=testchannel1"))
-			Eventually(ordererRunners[3].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("the new view is 1 channel=testchannel1"))
-
 			By("Waiting for circulating transaction to be re-proposed")
 			assertBlockReception(map[string]int{"testchannel1": 2}, network.Orderers[1:], peer, network)
 
