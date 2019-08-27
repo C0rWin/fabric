@@ -53,6 +53,8 @@ type Consenter struct {
 	SignerSerializer identity.SignerSerializer
 	Registrar        *multichannel.Registrar
 	WALBaseDir       string
+	ClusterDialer    *cluster.PredicateDialer
+	Conf             *localconfig.TopLevel
 }
 
 // New creates Consenter of type smart bft
@@ -78,6 +80,8 @@ func New(
 	logger.Infof("XXX WAL Directory is %s", cfg.WALDir)
 
 	consenter := &Consenter{
+		Conf:             conf,
+		ClusterDialer:    clusterDialer,
 		Logger:           logger,
 		Cert:             srvConf.SecOpts.Certificate,
 		Chains:           r,
@@ -192,9 +196,14 @@ func (c *Consenter) HandleChain(support consensus.ConsenterSupport, metadata *co
 		return nil, errors.Wrap(err, "failed extracting bundle from envelope")
 	}
 
+	puller, err := newBlockPuller(support, c.ClusterDialer, c.Conf.General.Cluster)
+	if err != nil {
+		c.Logger.Panicf("Failed initializing block puller")
+	}
+
 	return NewChain(selfID,
 		path.Join(c.WALBaseDir, support.ChainID()),
-		nil, // TODO: Initialize blocks puller
+		puller,
 		c.Comm,
 		c.SignerSerializer,
 		bundle.PolicyManager(),

@@ -27,6 +27,7 @@ import (
 	"github.com/onsi/gomega/gbytes"
 	"github.com/onsi/gomega/gexec"
 	"github.com/tedsuo/ifrit"
+	"github.com/tedsuo/ifrit/ginkgomon"
 )
 
 func init() {
@@ -41,11 +42,13 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 
 		networkProcess   ifrit.Process
 		ordererProcesses []ifrit.Process
+		peerProcesses    ifrit.Process
 	)
 
 	BeforeEach(func() {
+		networkProcess = nil
 		ordererProcesses = nil
-
+		peerProcesses = nil
 		var err error
 		testDir, err = ioutil.TempDir("", "e2e-smartbft-test")
 		Expect(err).NotTo(HaveOccurred())
@@ -59,6 +62,10 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			networkProcess.Signal(syscall.SIGTERM)
 			Eventually(networkProcess.Wait(), network.EventuallyTimeout).Should(Receive())
 		}
+		if peerProcesses != nil {
+			peerProcesses.Signal(syscall.SIGTERM)
+			Eventually(peerProcesses.Wait(), network.EventuallyTimeout).Should(Receive())
+		}
 		if network != nil {
 			network.Cleanup()
 		}
@@ -70,7 +77,7 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 	})
 
 	Describe("smartbft network", func() {
-		It("smartbft multiple nodes", func() {
+		It("smartbft multiple nodes stop start all nodes", func() {
 			network = nwo.New(nwo.MultiNodeSmartBFT(), testDir, client, StartPort(), components)
 			network.GenerateConfigTree()
 			network.Bootstrap()
@@ -125,6 +132,95 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			orderer = network.Orderers[rand.Intn(len(network.Orderers))]
 			fmt.Fprintf(GinkgoWriter, "Picking orderer %s to invoke", orderer.Name)
 			invokeQuery(network, peer, orderer, channel, 80)
+		})
+
+		It("smartbft synchronization", func() {
+			network = nwo.New(nwo.MultiNodeSmartBFT(), testDir, client, StartPort(), components)
+			network.GenerateConfigTree()
+			network.Bootstrap()
+
+			var ordererRunners []*ginkgomon.Runner
+			for _, orderer := range network.Orderers {
+				runner := network.OrdererRunner(orderer)
+				runner.Command.Env = append(runner.Command.Env, "FABRIC_LOGGING_SPEC=orderer.consensus.smartbft=debug:grpc=debug")
+				ordererRunners = append(ordererRunners, runner)
+				proc := ifrit.Invoke(runner)
+				ordererProcesses = append(ordererProcesses, proc)
+				Eventually(proc.Ready(), network.EventuallyTimeout).Should(BeClosed())
+			}
+
+			peerRunner := network.PeerGroupRunner()
+			peerProcesses = ifrit.Invoke(peerRunner)
+
+			Eventually(peerProcesses.Ready(), network.EventuallyTimeout).Should(BeClosed())
+
+			peer := network.Peer("Org1", "peer0")
+
+			assertBlockReception(map[string]int{"systemchannel": 0}, network.Orderers, peer, network)
+
+			By("Waiting for followers to see the leader")
+			Eventually(ordererRunners[1].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
+			Eventually(ordererRunners[2].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
+			Eventually(ordererRunners[3].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
+
+			channel := "testchannel1"
+
+			orderer := network.Orderers[0]
+			network.CreateAndJoinChannel(orderer, channel)
+
+			assertBlockReception(map[string]int{"systemchannel": 1}, network.Orderers, peer, network)
+
+			nwo.DeployChaincode(network, channel, network.Orderers[0], nwo.Chaincode{
+				Name:    "mycc",
+				Version: "0.0",
+				Path:    "github.com/hyperledger/fabric/integration/chaincode/simple/cmd",
+				Ctor:    `{"Args":["init","a","100","b","200"]}`,
+				Policy:  `AND ('Org1MSP.member','Org2MSP.member')`,
+			})
+
+			assertBlockReception(map[string]int{"testchannel1": 1}, network.Orderers, peer, network)
+
+			By("Taking down a follower node")
+			ordererProcesses[3].Signal(syscall.SIGTERM)
+			Eventually(ordererProcesses[3].Wait(), network.EventuallyTimeout).Should(Receive())
+
+			invokeQuery(network, peer, orderer, channel, 90)
+			invokeQuery(network, peer, orderer, channel, 80)
+			invokeQuery(network, peer, orderer, channel, 70)
+			invokeQuery(network, peer, orderer, channel, 60)
+
+			By("Bringing up the follower node")
+			runner := network.OrdererRunner(network.Orderers[3])
+			runner.Command.Env = append(runner.Command.Env, "FABRIC_LOGGING_SPEC=orderer.consensus.smartbft=debug:grpc=debug")
+			proc := ifrit.Invoke(runner)
+			ordererProcesses[3] = proc
+			Eventually(proc.Ready(), network.EventuallyTimeout).Should(BeClosed())
+			Eventually(runner.Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Starting view with number 0 and sequence 2"))
+
+			By("Waiting communication to be established from the leader")
+			Eventually(runner.Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
+			Eventually(runner.Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
+			Eventually(runner.Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
+
+			invokeQuery(network, peer, orderer, channel, 50)
+			time.Sleep(time.Second * 2)
+			invokeQuery(network, peer, orderer, channel, 40)
+			time.Sleep(time.Second * 2)
+			invokeQuery(network, peer, orderer, channel, 30)
+			time.Sleep(time.Second * 2)
+			invokeQuery(network, peer, orderer, channel, 20)
+			time.Sleep(time.Second * 2)
+
+			assertBlockReception(map[string]int{"testchannel1": 9}, network.Orderers, peer, network)
+
+			invokeQuery(network, peer, orderer, channel, 10)
+			assertBlockReception(map[string]int{"testchannel1": 10}, network.Orderers, peer, network)
+
+			invokeQuery(network, peer, orderer, channel, 0)
+			assertBlockReception(map[string]int{"testchannel1": 11}, network.Orderers, peer, network)
+
+			By("Ensuring follower participates in consensus")
+			Eventually(runner.Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Deciding on seq 11"))
 		})
 	})
 })

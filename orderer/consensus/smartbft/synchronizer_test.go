@@ -23,6 +23,8 @@ import (
 	"go.uber.org/zap"
 )
 
+func noopUpdateLastHash(_ *common.Block) {}
+
 func TestSynchronizerSync(t *testing.T) {
 	blockBytes, err := ioutil.ReadFile("testdata/mychannel.block")
 	require.NoError(t, err)
@@ -50,9 +52,15 @@ func TestSynchronizerSync(t *testing.T) {
 		fakeCS.BlockReturns(b99)
 		fakeCS.SequenceReturns(blockNum2configSqn[99])
 
-		syn, err := smartbft.NewSynchronizer(fakeCS, bp, 4, flogging.NewFabricLogger(zap.NewExample()))
-		require.NoError(t, err)
-		require.NotNil(t, syn)
+		l := flogging.NewFabricLogger(zap.NewExample())
+
+		syn := &smartbft.Synchronizer{
+			Logger:         l,
+			BlockPuller:    bp,
+			ClusterSize:    4,
+			Support:        fakeCS,
+			UpdateLastHash: noopUpdateLastHash,
+		}
 
 		metadata, sqn := syn.Sync()
 		assert.Equal(t, uint64(1), metadata.ViewId)
@@ -94,9 +102,13 @@ func TestSynchronizerSync(t *testing.T) {
 			return ledger[sqn]
 		})
 
-		syn, err := smartbft.NewSynchronizer(fakeCS, bp, 4, flogging.NewFabricLogger(zap.NewExample()))
-		require.NoError(t, err)
-		require.NotNil(t, syn)
+		syn := &smartbft.Synchronizer{
+			Logger:         flogging.NewFabricLogger(zap.NewExample()),
+			BlockPuller:    bp,
+			ClusterSize:    4,
+			Support:        fakeCS,
+			UpdateLastHash: noopUpdateLastHash,
+		}
 
 		metadata, sqn := syn.Sync()
 		assert.Equal(t, uint64(2), metadata.ViewId)
@@ -137,9 +149,13 @@ func TestSynchronizerSync(t *testing.T) {
 			return ledger[sqn]
 		})
 
-		syn, err := smartbft.NewSynchronizer(fakeCS, bp, 4, flogging.NewFabricLogger(zap.NewExample()))
-		require.NoError(t, err)
-		require.NotNil(t, syn)
+		syn := &smartbft.Synchronizer{
+			Logger:         flogging.NewFabricLogger(zap.NewExample()),
+			BlockPuller:    bp,
+			ClusterSize:    4,
+			Support:        fakeCS,
+			UpdateLastHash: noopUpdateLastHash,
+		}
 
 		metadata, sqn := syn.Sync()
 		assert.Equal(t, uint64(2), metadata.ViewId)
@@ -151,7 +167,7 @@ func TestSynchronizerSync(t *testing.T) {
 		bp := &mocks.FakeBlockPuller{}
 		bp.HeightsByEndpointsReturns(
 			map[string]uint64{
-				"example.com:1": 100,
+				"example.com:1": 101,
 				"example.com:4": 200, //byzantine, lying
 			},
 			nil,
@@ -179,13 +195,17 @@ func TestSynchronizerSync(t *testing.T) {
 			return ledger[sqn]
 		})
 
-		syn, err := smartbft.NewSynchronizer(fakeCS, bp, 4, flogging.NewFabricLogger(zap.NewExample()))
-		require.NoError(t, err)
-		require.NotNil(t, syn)
+		syn := &smartbft.Synchronizer{
+			Logger:         flogging.NewFabricLogger(zap.NewExample()),
+			BlockPuller:    bp,
+			ClusterSize:    4,
+			Support:        fakeCS,
+			UpdateLastHash: noopUpdateLastHash,
+		}
 
 		metadata, sqn := syn.Sync()
 		assert.Equal(t, uint64(1), metadata.ViewId)
-		assert.Equal(t, uint64(12), metadata.LatestSequence)
+		assert.Equal(t, uint64(13), metadata.LatestSequence)
 		assert.Equal(t, blockNum2configSqn[99], sqn)
 	})
 
@@ -220,9 +240,13 @@ func TestSynchronizerSync(t *testing.T) {
 			return ledger[sqn]
 		})
 
-		syn, err := smartbft.NewSynchronizer(fakeCS, bp, 4, flogging.NewFabricLogger(zap.NewExample()))
-		require.NoError(t, err)
-		require.NotNil(t, syn)
+		syn := &smartbft.Synchronizer{
+			Logger:         flogging.NewFabricLogger(zap.NewExample()),
+			BlockPuller:    bp,
+			ClusterSize:    4,
+			Support:        fakeCS,
+			UpdateLastHash: noopUpdateLastHash,
+		}
 
 		metadata, sqn := syn.Sync()
 		assert.Equal(t, uint64(1), metadata.ViewId)

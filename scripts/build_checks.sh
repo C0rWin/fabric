@@ -39,7 +39,7 @@ go get github.com/onsi/gomega/...
 
 echo "Running integration tests"
 cd integration/smartbft
-ginkgo --focus "smartbft multiple nodes"
+ginkgo
 
 if [[ $? -ne 0 ]];then
     echo "integration tests failed"

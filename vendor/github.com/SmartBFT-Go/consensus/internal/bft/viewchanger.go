@@ -50,7 +50,13 @@ type ViewChanger struct {
 	Controller    ViewController
 	RequestsTimer RequestsTimer
 
-	ResendTicker <-chan time.Time
+	Ticker              <-chan time.Time
+	lastTick            time.Time
+	ResendTimeout       time.Duration
+	lastResend          time.Time
+	TimeoutViewChange   time.Duration
+	startViewChangeTime time.Time
+	checkTimeout        bool
 
 	// Runtime
 	incMsgs         chan *incMsg
@@ -60,6 +66,7 @@ type ViewChanger struct {
 	nextView        uint64
 	leader          uint64
 	startChangeChan chan bool
+	informChan      chan uint64
 
 	stopOnce sync.Once
 	stopChan chan struct{}
@@ -70,6 +77,7 @@ type ViewChanger struct {
 func (v *ViewChanger) Start(startViewNumber uint64) {
 	v.incMsgs = make(chan *incMsg, 10*v.N) // TODO channel size should be configured
 	v.startChangeChan = make(chan bool, 1)
+	v.informChan = make(chan uint64)
 
 	v.nodes = v.Comm.Nodes()
 
@@ -85,6 +93,9 @@ func (v *ViewChanger) Start(startViewNumber uint64) {
 	v.currView = startViewNumber
 	v.nextView = v.currView
 	v.leader = getLeaderID(v.currView, v.N, v.nodes)
+
+	v.lastTick = time.Now()
+	v.lastResend = v.lastTick
 
 	go func() {
 		defer v.vcDone.Done()
@@ -151,13 +162,21 @@ func (v *ViewChanger) run() {
 			v.startViewChange(stopView)
 		case msg := <-v.incMsgs:
 			v.processMsg(msg.sender, msg.Message)
-		case <-v.ResendTicker:
-			v.resend()
+		case now := <-v.Ticker:
+			v.lastTick = now
+			v.checkIfResendViewChange(now)
+			v.checkIfTimeout(now)
+		case view := <-v.informChan:
+			v.informNewView(view)
 		}
 	}
 }
 
-func (v *ViewChanger) resend() {
+func (v *ViewChanger) checkIfResendViewChange(now time.Time) {
+	nextTimeout := v.lastResend.Add(v.ResendTimeout)
+	if nextTimeout.After(now) { // check if it is time to resend
+		return
+	}
 	if v.nextView == v.currView+1 { // started view change already but didn't get quorum yet
 		msg := &protos.Message{
 			Content: &protos.Message_ViewChange{
@@ -169,6 +188,23 @@ func (v *ViewChanger) resend() {
 		}
 		v.Comm.BroadcastConsensus(msg)
 	}
+	v.lastResend = now // update last resend time
+	v.Logger.Debugf("Node %d resent a view change message with next view %d", v.SelfID, v.nextView)
+}
+
+func (v *ViewChanger) checkIfTimeout(now time.Time) {
+	if !v.checkTimeout {
+		return
+	}
+	nextTimeout := v.startViewChangeTime.Add(v.TimeoutViewChange)
+	if nextTimeout.After(now) { // check if timeout has passed
+		return
+	}
+	v.Logger.Debugf("Node %d got a view change timeout", v.SelfID)
+	v.checkTimeout = false // stop timeout for now, a new one will start when a new view change begins
+	// the timeout has passed, something went wrong, try sync and complain
+	v.Synchronizer.Sync()
+	v.StartViewChange(false) // don't stop the view, the sync maybe created a good view
 }
 
 func (v *ViewChanger) processMsg(sender uint64, m *protos.Message) {
@@ -207,6 +243,25 @@ func (v *ViewChanger) processMsg(sender uint64, m *protos.Message) {
 	}
 }
 
+// InformNewView tells the view changer to advance to a new view number
+func (v *ViewChanger) InformNewView(view uint64) {
+	select {
+	case v.informChan <- view: // blocking, can't lose this view
+	case <-v.stopChan:
+		return
+	}
+}
+
+func (v *ViewChanger) informNewView(view uint64) {
+	v.Logger.Debugf("Node %d was informed of a new view %d", v.SelfID, view)
+	v.currView = view
+	v.nextView = v.currView
+	v.leader = getLeaderID(v.currView, v.N, v.nodes)
+	v.viewChangeMsgs.clear(v.N)
+	v.viewDataMsgs.clear(v.N)
+	v.checkTimeout = false
+}
+
 // StartViewChange initiates a view change
 func (v *ViewChanger) StartViewChange(stopView bool) {
 	select {
@@ -232,6 +287,8 @@ func (v *ViewChanger) startViewChange(stopView bool) {
 	if stopView {
 		v.Controller.AbortView() // abort the current view when joining view change
 	}
+	v.startViewChangeTime = v.lastTick
+	v.checkTimeout = true
 }
 
 func (v *ViewChanger) processViewChangeMsg() {
@@ -496,6 +553,7 @@ func (v *ViewChanger) processNewViewMsg(msg *protos.NewView) {
 		v.Logger.Debugf("Changing to view %d with sequence %d and last decision %v", v.currView, maxLastDecisionSequence+1, maxLastDecision)
 		v.commitLastDecision(maxLastDecisionSequence, maxLastDecision, maxLastDecisionSigs)
 		v.Controller.ViewChanged(v.currView, maxLastDecisionSequence+1)
+		v.checkTimeout = false
 	}
 }
 

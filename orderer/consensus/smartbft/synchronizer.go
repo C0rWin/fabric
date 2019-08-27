@@ -18,41 +18,22 @@ import (
 )
 
 type Synchronizer struct {
-	support     consensus.ConsenterSupport
-	blockPuller BlockPuller
-	clusterSize uint64
-	logger      *flogging.FabricLogger
-}
-
-func NewSynchronizer(
-	support consensus.ConsenterSupport,
-	blockPuller BlockPuller,
-	clusterSize uint64,
-	logger *flogging.FabricLogger,
-) (*Synchronizer, error) {
-	s := &Synchronizer{
-		support:     support,
-		blockPuller: blockPuller,
-		clusterSize: clusterSize,
-		logger:      logger,
-	}
-
-	if logger == nil {
-		s.logger = flogging.MustGetLogger("orderer.consensus.smartbft.sync").With("channel", support.ChainID())
-	}
-
-	return s, nil
+	UpdateLastHash func(block *common.Block)
+	Support        consensus.ConsenterSupport
+	BlockPuller    BlockPuller
+	ClusterSize    uint64
+	Logger         *flogging.FabricLogger
 }
 
 func (s *Synchronizer) Close() {
-	s.blockPuller.Close()
+	s.BlockPuller.Close()
 }
 
 func (s *Synchronizer) Sync() (smartbftprotos.ViewMetadata, uint64) {
 	metadata, sqn, err := s.synchronize()
 	if err != nil {
-		s.logger.Warnf("Could not synchronize with remote peers, returning state from local ledger; error: %s", err)
-		block := s.support.Block(s.support.Height() - 1)
+		s.Logger.Warnf("Could not synchronize with remote peers due to %s, returning state from local ledger", err)
+		block := s.Support.Block(s.Support.Height() - 1)
 		return s.getViewMetadataLastConfigSqnFromBlock(block)
 	}
 
@@ -65,56 +46,70 @@ func (s *Synchronizer) getViewMetadataLastConfigSqnFromBlock(block *common.Block
 		return smartbftprotos.ViewMetadata{}, 0
 	}
 
-	lastConfigSqn := s.support.Sequence()
+	lastConfigSqn := s.Support.Sequence()
 
 	return viewMetadata, lastConfigSqn
 }
 
 func (s *Synchronizer) synchronize() (smartbftprotos.ViewMetadata, uint64, error) {
-
-	heightByEndpoint, err := s.blockPuller.HeightsByEndpoints()
+	defer s.BlockPuller.Close()
+	heightByEndpoint, err := s.BlockPuller.HeightsByEndpoints()
 	if err != nil {
-		return smartbftprotos.ViewMetadata{}, 0, errors.Wrap(err, "Cannot get HeightsByEndpoints")
+		return smartbftprotos.ViewMetadata{}, 0, errors.Wrap(err, "cannot get HeightsByEndpoints")
 	}
 
-	heights := []uint64{}
+	s.Logger.Infof("HeightsByEndpoints: %v", heightByEndpoint)
+
+	if len(heightByEndpoint) == 0 {
+		return smartbftprotos.ViewMetadata{}, 0, errors.New("no cluster members to synchronize with")
+	}
+
+	var heights []uint64
 	for _, value := range heightByEndpoint {
 		heights = append(heights, value)
 	}
-	if len(heights) == 0 {
-		return smartbftprotos.ViewMetadata{}, 0, errors.New("No cluster members to synchronize with")
+
+	targetHeight := s.computeTargetHeight(heights)
+	startHeight := s.Support.Height()
+	if startHeight >= targetHeight {
+		return smartbftprotos.ViewMetadata{}, 0, errors.Errorf("already at height of %d", targetHeight)
 	}
 
-	targetHeight := s.computeTargetHeight(heights, s.clusterSize)
-	startHeight := s.support.Height()
-	currentHeight := startHeight
-	s.logger.Debugf("Current height [%d], target height [%d]", currentHeight, targetHeight)
+	targetSeq := targetHeight - 1
+	seq := startHeight
 
-	for currentHeight < targetHeight {
-		block := s.blockPuller.PullBlock(currentHeight)
+	s.Logger.Debugf("Will fetch sequences [%d-%d]", seq, targetSeq)
+
+	var lastPulledBlock *common.Block
+	for seq <= targetSeq {
+		block := s.BlockPuller.PullBlock(seq)
 		if block == nil {
-			s.logger.Debugf("Failed to fetch block [%d] from cluster", currentHeight)
+			s.Logger.Debugf("Failed to fetch block [%d] from cluster", seq)
 			break
 		}
-
 		if protoutil.IsConfigBlock(block) {
-			s.support.WriteConfigBlock(block, nil)
+			s.Support.WriteConfigBlock(block, nil)
 		} else {
-			s.support.WriteBlock(block, nil)
+			s.Support.WriteBlock(block, nil)
 		}
-		s.logger.Debugf("Fetched and committed block [%d] from cluster", currentHeight)
-		currentHeight++
+		s.Logger.Debugf("Fetched and committed block [%d] from cluster", seq)
+		lastPulledBlock = block
+		seq++
 	}
 
-	s.logger.Infof("Finished synchronizing with cluster, fetched %d blocks, starting from block [%d], up until and including block [%d]",
-		currentHeight-startHeight, startHeight-1, currentHeight-1)
-	lastBlock := s.support.Block(currentHeight - 1)
-	if lastBlock == nil {
-		return smartbftprotos.ViewMetadata{}, 0, errors.Errorf("Could not retrieve block [%d] from local ledger", currentHeight-1)
+	if lastPulledBlock == nil {
+		return smartbftprotos.ViewMetadata{}, 0, errors.Errorf("failed pulling block %d", seq)
 	}
-	viewMetadata, lastConfigSqn := s.getViewMetadataLastConfigSqnFromBlock(lastBlock)
-	s.logger.Debugf("Last block ViewMetadata=%s, lastConfigSqn=%d", viewMetadata, lastConfigSqn)
 
+	s.UpdateLastHash(lastPulledBlock)
+
+	startSeq := startHeight
+	s.Logger.Infof("Finished synchronizing with cluster, fetched %d blocks, starting from block [%d], up until and including block [%d]",
+		seq-startSeq+1, startSeq, lastPulledBlock.Header.Number)
+
+	viewMetadata, lastConfigSqn := s.getViewMetadataLastConfigSqnFromBlock(lastPulledBlock)
+
+	s.Logger.Infof("Returning view metadata of %v, lastConfigSeq %d", viewMetadata, lastConfigSqn)
 	return viewMetadata, lastConfigSqn, nil
 }
 
@@ -122,13 +117,17 @@ func (s *Synchronizer) synchronize() (smartbftprotos.ViewMetadata, uint64, error
 //
 // heights: a slice containing the heights of accessible peers, length must be >0.
 // clusterSize: the cluster size, must be >0.
-func (s *Synchronizer) computeTargetHeight(heights []uint64, clusterSize uint64) uint64 {
+func (s *Synchronizer) computeTargetHeight(heights []uint64) uint64 {
 	sort.Slice(heights, func(i, j int) bool { return heights[i] > heights[j] }) // Descending
-	bftF := (clusterSize - 1) / 3                                               // The number of tolerated byzantine faults
-	lenH := len(heights)
+	f := uint64(s.ClusterSize-1) / 3                                            // The number of tolerated byzantine faults
+	lenH := uint64(len(heights))
 
-	if uint64(lenH) < bftF+1 {
-		return heights[lenH-1]
+	s.Logger.Debugf("Heights: %v", heights)
+
+	if lenH < f+1 {
+		s.Logger.Debugf("Returning %d", heights[0])
+		return heights[int(lenH)-1]
 	}
-	return heights[bftF]
+	s.Logger.Debugf("Returning %d", heights[f])
+	return heights[f]
 }

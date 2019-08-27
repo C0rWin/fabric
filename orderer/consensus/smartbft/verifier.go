@@ -59,6 +59,7 @@ type Verifier struct {
 	Ledger                 Ledger
 	LastCommittedBlockHash string
 	Logger                 *flogging.FabricLogger
+	lock                   sync.RWMutex
 }
 
 func (v *Verifier) VerifyProposal(proposal types.Proposal) ([]types.RequestInfo, error) {
@@ -67,7 +68,7 @@ func (v *Verifier) VerifyProposal(proposal types.Proposal) ([]types.RequestInfo,
 		return nil, err
 	}
 
-	if err := verifyHashChain(block, v.LastCommittedBlockHash); err != nil {
+	if err := verifyHashChain(block, v.lastCommittedHash()); err != nil {
 		return nil, err
 	}
 
@@ -131,6 +132,12 @@ func (v *Verifier) VerifyConsenterSig(signature types.Signature, prop types.Prop
 
 func (v *Verifier) VerificationSequence() uint64 {
 	return v.VerificationSequencer.Sequence()
+}
+
+func (v *Verifier) lastCommittedHash() string {
+	v.lock.RLock()
+	defer v.lock.RUnlock()
+	return v.LastCommittedBlockHash
 }
 
 func verifyHashChain(block *common.Block, prevHeaderHash string) error {
