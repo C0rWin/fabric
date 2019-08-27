@@ -222,6 +222,78 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			By("Ensuring follower participates in consensus")
 			Eventually(runner.Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Deciding on seq 11"))
 		})
+
+		It("smartbft multiple nodes view change", func() {
+			network = nwo.New(nwo.MultiNodeSmartBFT(), testDir, client, StartPort(), components)
+			network.GenerateConfigTree()
+			network.Bootstrap()
+
+			var ordererRunners []*ginkgomon.Runner
+			for _, orderer := range network.Orderers {
+				runner := network.OrdererRunner(orderer)
+				ordererRunners = append(ordererRunners, runner)
+				proc := ifrit.Invoke(runner)
+				ordererProcesses = append(ordererProcesses, proc)
+				Eventually(proc.Ready(), network.EventuallyTimeout).Should(BeClosed())
+			}
+
+			peerRunner := network.PeerGroupRunner()
+			peerProcesses = ifrit.Invoke(peerRunner)
+			Eventually(peerProcesses.Ready(), network.EventuallyTimeout).Should(BeClosed())
+
+			By("Waiting for followers to see the leader")
+			Eventually(ordererRunners[1].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
+			Eventually(ordererRunners[2].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
+			Eventually(ordererRunners[3].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
+
+			peer := network.Peer("Org1", "peer0")
+
+			channel := "testchannel1"
+
+			orderer := network.Orderers[0]
+			network.CreateAndJoinChannel(orderer, channel)
+
+			assertBlockReception(map[string]int{"systemchannel": 1}, network.Orderers, peer, network)
+
+			nwo.DeployChaincode(network, channel, orderer, nwo.Chaincode{
+				Name:    "mycc",
+				Version: "0.0",
+				Path:    "github.com/hyperledger/fabric/integration/chaincode/simple/cmd",
+				Ctor:    `{"Args":["init","a","100","b","200"]}`,
+				Policy:  `AND ('Org1MSP.member','Org2MSP.member')`,
+			})
+
+			assertBlockReception(map[string]int{"testchannel1": 1}, network.Orderers, peer, network)
+
+			By("Taking down the leader node")
+			ordererProcesses[0].Signal(syscall.SIGTERM)
+			Eventually(ordererProcesses[0].Wait(), network.EventuallyTimeout).Should(Receive())
+
+			By("Submitting a request all followers to force a view change")
+			for _, orderer := range []*nwo.Orderer{network.Orderers[1], network.Orderers[2], network.Orderers[3]} {
+				sess, err := network.PeerUserSession(peer, "User1", commands.ChaincodeInvoke{
+					ChannelID: channel,
+					Orderer:   network.OrdererAddress(orderer, nwo.ListenPort),
+					Name:      "mycc",
+					Ctor:      `{"Args":["invoke","a","b","10"]}`,
+					PeerAddresses: []string{
+						network.PeerAddress(network.Peer("Org1", "peer0"), nwo.ListenPort),
+						network.PeerAddress(network.Peer("Org2", "peer1"), nwo.ListenPort),
+					},
+					WaitForEvent: false,
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(0))
+			}
+
+			By("Waiting for a view change")
+			Eventually(ordererRunners[1].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("the new view is 1 channel=testchannel1"))
+			Eventually(ordererRunners[2].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("the new view is 1 channel=testchannel1"))
+			Eventually(ordererRunners[3].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("the new view is 1 channel=testchannel1"))
+
+			By("Submitting transaction to the new leader")
+			invokeQuery(network, peer, network.Orderers[1], channel, 80)
+		})
 	})
 })
 
