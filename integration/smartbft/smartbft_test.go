@@ -134,7 +134,7 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			invokeQuery(network, peer, orderer, channel, 80)
 		})
 
-		It("smartbft synchronization", func() {
+		It("smartbft assisted synchronization", func() {
 			network = nwo.New(nwo.MultiNodeSmartBFT(), testDir, client, StartPort(), components)
 			network.GenerateConfigTree()
 			network.Bootstrap()
@@ -221,6 +221,87 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 
 			By("Ensuring follower participates in consensus")
 			Eventually(runner.Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Deciding on seq 11"))
+		})
+
+		It("smartbft autonomous synchronization", func() {
+			network = nwo.New(nwo.MultiNodeSmartBFT(), testDir, client, StartPort(), components)
+			network.GenerateConfigTree()
+			network.Bootstrap()
+			network.EventuallyTimeout = time.Minute * 2
+
+			var ordererRunners []*ginkgomon.Runner
+			for _, orderer := range network.Orderers {
+				runner := network.OrdererRunner(orderer)
+				runner.Command.Env = append(runner.Command.Env, "FABRIC_LOGGING_SPEC=orderer.consensus.smartbft=debug:grpc=debug")
+				ordererRunners = append(ordererRunners, runner)
+				proc := ifrit.Invoke(runner)
+				ordererProcesses = append(ordererProcesses, proc)
+				Eventually(proc.Ready(), network.EventuallyTimeout).Should(BeClosed())
+			}
+
+			peerRunner := network.PeerGroupRunner()
+			peerProcesses = ifrit.Invoke(peerRunner)
+
+			Eventually(peerProcesses.Ready(), network.EventuallyTimeout).Should(BeClosed())
+
+			peer := network.Peer("Org1", "peer0")
+
+			assertBlockReception(map[string]int{"systemchannel": 0}, network.Orderers, peer, network)
+
+			By("Waiting for followers to see the leader")
+			Eventually(ordererRunners[1].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
+			Eventually(ordererRunners[2].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
+			Eventually(ordererRunners[3].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
+
+			channel := "testchannel1"
+
+			orderer := network.Orderers[0]
+			network.CreateAndJoinChannel(orderer, channel)
+
+			assertBlockReception(map[string]int{"systemchannel": 1}, network.Orderers, peer, network)
+
+			nwo.DeployChaincode(network, channel, network.Orderers[0], nwo.Chaincode{
+				Name:    "mycc",
+				Version: "0.0",
+				Path:    "github.com/hyperledger/fabric/integration/chaincode/simple/cmd",
+				Ctor:    `{"Args":["init","a","100","b","200"]}`,
+				Policy:  `AND ('Org1MSP.member','Org2MSP.member')`,
+			})
+
+			assertBlockReception(map[string]int{"testchannel1": 1}, network.Orderers, peer, network)
+
+			By("Taking down a follower node")
+			ordererProcesses[3].Signal(syscall.SIGTERM)
+			Eventually(ordererProcesses[3].Wait(), network.EventuallyTimeout).Should(Receive())
+
+			invokeQuery(network, peer, orderer, channel, 90)
+			invokeQuery(network, peer, orderer, channel, 80)
+			invokeQuery(network, peer, orderer, channel, 70)
+			invokeQuery(network, peer, orderer, channel, 60)
+
+			By("Bringing up the follower node")
+			runner := network.OrdererRunner(network.Orderers[3])
+			runner.Command.Env = append(runner.Command.Env, "FABRIC_LOGGING_SPEC=orderer.consensus.smartbft=debug:grpc=debug")
+			proc := ifrit.Invoke(runner)
+			ordererProcesses[3] = proc
+			Eventually(proc.Ready(), network.EventuallyTimeout).Should(BeClosed())
+			Eventually(runner.Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Starting view with number 0 and sequence 2"))
+
+			By("Waiting communication to be established from the leader")
+			Eventually(runner.Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
+
+			By("Waiting for follower to understand it is behind")
+			Eventually(runner.Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Leader's sequence is 5 and ours is 2"))
+
+			By("Waiting for follower to synchronize itself")
+			Eventually(runner.Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Finished synchronizing with cluster"))
+
+			By("Waiting for all nodes to have the latest block sequence")
+			assertBlockReception(map[string]int{"testchannel1": 5}, network.Orderers, peer, network)
+
+			By("Ensuring the follower is functioning properly")
+			invokeQuery(network, peer, orderer, channel, 50)
+			assertBlockReception(map[string]int{"testchannel1": 6}, network.Orderers, peer, network)
 		})
 
 		It("smartbft multiple nodes view change", func() {
