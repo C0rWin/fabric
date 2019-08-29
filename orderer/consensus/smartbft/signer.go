@@ -13,6 +13,12 @@ import (
 	"github.com/hyperledger/fabric/protoutil"
 )
 
+//go:generate mockery -dir . -name SignerSerializer -case underscore -output ./mocks/
+
+type SignerSerializer interface {
+	identity.SignerSerializer
+}
+
 type Signer struct {
 	ID               uint64
 	SignerSerializer identity.SignerSerializer
