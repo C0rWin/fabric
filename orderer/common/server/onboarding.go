@@ -12,15 +12,16 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/channelconfig"
-	"github.com/hyperledger/fabric/common/crypto"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/ledger/blockledger"
 	"github.com/hyperledger/fabric/core/comm"
+	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/orderer/common/localconfig"
 	"github.com/hyperledger/fabric/orderer/consensus/etcdraft"
+	"github.com/hyperledger/fabric/orderer/consensus/smartbft"
 	"github.com/hyperledger/fabric/protos/common"
-	"github.com/hyperledger/fabric/protos/utils"
+	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 )
 
@@ -37,7 +38,7 @@ type replicationInitiator struct {
 	secOpts           *comm.SecureOptions
 	conf              *localconfig.TopLevel
 	lf                cluster.LedgerFactory
-	signer            crypto.LocalSigner
+	signer            identity.SignerSerializer
 }
 
 func (ri *replicationInitiator) replicateIfNeeded(bootstrapBlock *common.Block) {
@@ -49,8 +50,11 @@ func (ri *replicationInitiator) replicateIfNeeded(bootstrapBlock *common.Block) 
 }
 
 func (ri *replicationInitiator) createReplicator(bootstrapBlock *common.Block, filter func(string) bool) *cluster.Replicator {
-	consenterCert := etcdraft.ConsenterCertificate(ri.secOpts.Certificate)
-	systemChannelName, err := utils.GetChainIDFromBlock(bootstrapBlock)
+	membershipPred := etcdraft.ConsenterCertificate(ri.secOpts.Certificate).IsConsenterOfChannel
+	if consensusType(bootstrapBlock) == "smartbft" {
+		membershipPred = smartbft.ConsenterCertificate(ri.secOpts.Certificate).IsConsenterOfChannel
+	}
+	systemChannelName, err := protoutil.GetChainIDFromBlock(bootstrapBlock)
 	if err != nil {
 		ri.logger.Panicf("Failed extracting system channel name from bootstrap block: %v", err)
 	}
@@ -68,7 +72,7 @@ func (ri *replicationInitiator) createReplicator(bootstrapBlock *common.Block, f
 		SystemChannel:    systemChannelName,
 		BootBlock:        bootstrapBlock,
 		Logger:           ri.logger,
-		AmIPartOfChannel: consenterCert.IsConsenterOfChannel,
+		AmIPartOfChannel: membershipPred,
 		Puller:           puller,
 		ChannelLister: &cluster.ChainInspector{
 			Logger:          ri.logger,

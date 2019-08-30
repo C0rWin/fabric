@@ -270,13 +270,13 @@ func (c *BFTChain) Deliver(proposal types.Proposal, signatures []types.Signature
 		Signatures: sigs,
 	})
 
+	defer c.updateLastCommittedHash(block)
 	c.Logger.Debugf("Delivering proposal, writing block %d to the ledger, node id %d", block.Header.Number, c.SelfID)
 	if protoutil.IsConfigBlock(block) {
 		c.support.WriteConfigBlock(block, nil)
 		return
 	}
 	c.support.WriteBlock(block, nil)
-	c.updateLastCommittedHash(block)
 }
 
 func (c *BFTChain) updateLastCommittedHash(block *common.Block) {

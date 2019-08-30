@@ -461,6 +461,9 @@ func (conCert ConsenterCertificate) IsConsenterOfChannel(configBlock *common.Blo
 	if !exists {
 		return errors.New("no orderer config in bundle")
 	}
+	if oc.ConsensusType() != "etcdraft" {
+		return errors.New("not an etcdraft config block")
+	}
 	m := &etcdraft.ConfigMetadata{}
 	if err := proto.Unmarshal(oc.ConsensusMetadata(), m); err != nil {
 		return err

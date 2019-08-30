@@ -11,9 +11,12 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 
+	"bytes"
+
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	"github.com/SmartBFT-Go/consensus/smartbftprotos"
 	"github.com/golang/protobuf/proto"
+	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/configtx"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
@@ -22,6 +25,7 @@ import (
 	"github.com/hyperledger/fabric/orderer/consensus/etcdraft"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/msp"
+	"github.com/hyperledger/fabric/protos/orderer/smartbft"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 )
@@ -177,4 +181,42 @@ func ConfigurationEnvelop(configBlock *common.Block) (*common.ConfigEnvelope, er
 		return nil, errors.Wrap(err, "failed to unmarshal configuration payload")
 	}
 	return configEnvelope, nil
+}
+
+// ConsenterCertificate denotes a TLS certificate of a consenter
+type ConsenterCertificate []byte
+
+// IsConsenterOfChannel returns whether the caller is a consenter of a channel
+// by inspecting the given configuration block.
+// It returns nil if true, else returns an error.
+func (conCert ConsenterCertificate) IsConsenterOfChannel(configBlock *common.Block) error {
+	if configBlock == nil {
+		return errors.New("nil block")
+	}
+	envelopeConfig, err := protoutil.ExtractEnvelope(configBlock, 0)
+	if err != nil {
+		return err
+	}
+	bundle, err := channelconfig.NewBundleFromEnvelope(envelopeConfig)
+	if err != nil {
+		return err
+	}
+	oc, exists := bundle.OrdererConfig()
+	if !exists {
+		return errors.New("no orderer config in bundle")
+	}
+	if oc.ConsensusType() != "smartbft" {
+		return errors.New("not an etcdraft config block")
+	}
+	m := &smartbft.ConfigMetadata{}
+	if err := proto.Unmarshal(oc.ConsensusMetadata(), m); err != nil {
+		return err
+	}
+
+	for _, consenter := range m.Consenters {
+		if bytes.Equal(conCert, consenter.ServerTlsCert) || bytes.Equal(conCert, consenter.ClientTlsCert) {
+			return nil
+		}
+	}
+	return cluster.ErrNotInChannel
 }
