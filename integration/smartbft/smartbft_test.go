@@ -23,6 +23,7 @@ import (
 	docker "github.com/fsouza/go-dockerclient"
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/integration/nwo/commands"
+	"github.com/hyperledger/fabric/protos/msp"
 	"github.com/hyperledger/fabric/protos/orderer/smartbft"
 	"github.com/hyperledger/fabric/protoutil"
 	. "github.com/onsi/ginkgo"
@@ -386,9 +387,12 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			for _, channel := range []string{"systemchannel", "testchannel1"} {
 				nwo.UpdateSmartBFTMetadata(network, peer, orderer, channel, func(md *smartbft.ConfigMetadata) {
 					md.Consenters = append(md.Consenters, &smartbft.Consenter{
-						MspId:         "OrdererMSP",
-						ConsenterId:   4,
-						Identity:      ordererIdentity,
+						MspId:       "OrdererMSP",
+						ConsenterId: 4,
+						Identity: protoutil.MarshalOrPanic(&msp.SerializedIdentity{
+							Mspid:   "OrdererMSP",
+							IdBytes: ordererIdentity,
+						}),
 						ServerTlsCert: ordererCertificate,
 						ClientTlsCert: ordererCertificate,
 						Host:          "127.0.0.1",
@@ -399,19 +403,23 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 				assertBlockReception(map[string]int{channel: 2}, network.Orderers[:4], peer, network)
 			}
 
-			By("Restarting all orderers")
-			for i, orderer := range network.Orderers[:4] {
-				By(fmt.Sprintf("Killing %s", orderer.Name))
-				ordererProcesses[i].Signal(syscall.SIGTERM)
-				Eventually(ordererProcesses[i].Wait(), network.EventuallyTimeout).Should(Receive())
+			restart := func() {
+				for i, orderer := range network.Orderers[:4] {
+					By(fmt.Sprintf("Killing %s", orderer.Name))
+					ordererProcesses[i].Signal(syscall.SIGTERM)
+					Eventually(ordererProcesses[i].Wait(), network.EventuallyTimeout).Should(Receive())
 
-				By(fmt.Sprintf("Launching %s", orderer.Name))
-				runner := network.OrdererRunner(orderer)
-				ordererRunners[i] = runner
-				proc := ifrit.Invoke(runner)
-				ordererProcesses[i] = proc
-				Eventually(proc.Ready(), network.EventuallyTimeout).Should(BeClosed())
+					By(fmt.Sprintf("Launching %s", orderer.Name))
+					runner := network.OrdererRunner(orderer)
+					ordererRunners[i] = runner
+					proc := ifrit.Invoke(runner)
+					ordererProcesses[i] = proc
+					Eventually(proc.Ready(), network.EventuallyTimeout).Should(BeClosed())
+				}
 			}
+
+			By("Restarting all orderers")
+			restart()
 
 			By("Waiting for followers to see the leader")
 			Eventually(ordererRunners[1].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
@@ -448,6 +456,59 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 
 			By("Ensure all nodes are in sync")
 			assertBlockReception(map[string]int{channel: 7}, network.Orderers, peer, network)
+
+			By("Killing the added node")
+			proc.Signal(syscall.SIGTERM)
+			Eventually(proc.Wait(), network.EventuallyTimeout).Should(Receive())
+
+			By("Removing the added node from the channels")
+			for _, channel := range []string{"systemchannel", "testchannel1"} {
+				nwo.UpdateSmartBFTMetadata(network, peer, orderer, channel, func(md *smartbft.ConfigMetadata) {
+					md.Consenters = md.Consenters[:4]
+				})
+			}
+
+			assertBlockReception(map[string]int{
+				"systemchannel": 3,
+				"testchannel1":  8,
+			}, network.Orderers[:4], peer, network)
+
+			By("Restarting all orderers")
+			restart()
+
+			By("Launching the added orderer again")
+			runner = network.OrdererRunner(orderer5)
+			proc = ifrit.Invoke(runner)
+			ordererProcesses[4] = proc
+			Eventually(proc.Ready(), network.EventuallyTimeout).Should(BeClosed())
+
+			By("Ensuring the leader talks to existing followers")
+			Eventually(ordererRunners[1].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
+			Eventually(ordererRunners[2].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
+			Eventually(ordererRunners[3].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
+
+			By("Transact again")
+			invokeQuery(network, peer, orderer, channel, 40)
+
+			By("Ensuring the existing nodes got the block")
+			assertBlockReception(map[string]int{
+				"systemchannel": 3,
+				"testchannel1":  9,
+			}, network.Orderers[:4], peer, network)
+
+			By("Ensuring the removed node didn't get the blocks")
+			assertBlockReception(map[string]int{
+				"systemchannel": 2,
+				"testchannel1":  7,
+			}, []*nwo.Orderer{orderer5}, peer, network)
+
+			By("Waiting for the removed node to start a view change")
+			Eventually(runner.Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Heartbeat timeout expired, complaining about leader"))
+
+			By("Ensuring the other nodes do not speak with the removed node")
+			Eventually(ordererRunners[1].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("certificate extracted from TLS connection isn't authorized"))
+			Eventually(ordererRunners[2].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("certificate extracted from TLS connection isn't authorized"))
+			Eventually(ordererRunners[3].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("certificate extracted from TLS connection isn't authorized"))
 		})
 
 		It("smartbft multiple nodes view change", func() {

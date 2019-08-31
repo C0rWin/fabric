@@ -116,7 +116,6 @@ func NewChain(
 	c.consensus = bftSmartConsensusBuild(c, requestInspector, nodes)
 
 	// Setup communication with list of remotes notes for the new channel
-	c.Logger.Debugf("Configure cluster communication with remote nodes [%+v]")
 	c.Comm.Configure(c.support.ChainID(), c.RemoteNodes)
 
 	return c
@@ -373,7 +372,6 @@ func (c *BFTChain) lastPersistedProposalAndSignatures() (*types.Proposal, []type
 		if err := proto.Unmarshal(sigMD.SignatureHeader, sigHdr); err != nil {
 			c.Logger.Panicf("Failed unmarshaling signature header: %v", err)
 		}
-
 		id, found := c.ID2Identities.IdentityToID(sigHdr.Creator)
 		if !found {
 			c.Logger.Panicf("Didn't find identity corresponding to %s", string(sigHdr.Creator))

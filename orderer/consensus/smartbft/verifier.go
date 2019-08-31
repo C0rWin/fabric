@@ -17,6 +17,7 @@ import (
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/protos/common"
+	"github.com/hyperledger/fabric/protos/msp"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 )
@@ -42,8 +43,14 @@ type requestVerifier func(req []byte) (types.RequestInfo, error)
 type NodeIdentitiesByID map[uint64][]byte
 
 func (nibd NodeIdentitiesByID) IdentityToID(identity []byte) (uint64, bool) {
+	sID := &msp.SerializedIdentity{}
+	if err := proto.Unmarshal(identity, sID); err != nil {
+		panic(err)
+	}
 	for id, currIdentity := range nibd {
-		if bytes.Equal(currIdentity, identity) {
+		currentID := &msp.SerializedIdentity{}
+		proto.Unmarshal(currIdentity, currentID)
+		if proto.Equal(currentID, sID) {
 			return id, true
 		}
 	}

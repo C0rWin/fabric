@@ -155,8 +155,9 @@ func (c *Consenter) HandleChain(support consensus.ConsenterSupport, metadata *co
 	var nodes []cluster.RemoteNode
 	id2Identies := map[uint64][]byte{}
 	for _, consenter := range m.Consenters {
+		id2Identies[consenter.ConsenterId] = sanitizeIdentity(consenter.Identity, c.Logger)
 
-		id2Identies[consenter.ConsenterId] = consenter.Identity
+		c.Logger.Infof("%s %d ---> %s", support.ChainID(), consenter.ConsenterId, string(consenter.Identity))
 
 		// No need to know yourself
 		if selfID == consenter.ConsenterId {

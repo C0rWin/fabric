@@ -7,15 +7,21 @@ SPDX-License-Identifier: Apache-2.0
 package smartbft
 
 import (
+	"bytes"
+	"crypto/elliptic"
 	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/hex"
 	"encoding/pem"
-
-	"bytes"
+	"math/big"
+	"time"
 
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	"github.com/SmartBFT-Go/consensus/smartbftprotos"
 	"github.com/golang/protobuf/proto"
+	"github.com/hyperledger/fabric/bccsp/utils"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/configtx"
 	"github.com/hyperledger/fabric/common/flogging"
@@ -219,4 +225,79 @@ func (conCert ConsenterCertificate) IsConsenterOfChannel(configBlock *common.Blo
 		}
 	}
 	return cluster.ErrNotInChannel
+}
+
+func sanitizeIdentity(identity []byte, logger *flogging.FabricLogger) []byte {
+	sID := &msp.SerializedIdentity{}
+	if err := proto.Unmarshal(identity, sID); err != nil {
+		logger.Panicf("Failed unmarshaling identity %s", string(identity))
+	}
+
+	der, _ := pem.Decode(sID.IdBytes)
+	cert, err := x509.ParseCertificate(der.Bytes)
+	if err != nil {
+		logger.Panicf("Failed parsing certificate %s: %v", string(sID.IdBytes), err)
+	}
+
+	r, s, err := utils.UnmarshalECDSASignature(cert.Signature)
+	if err != nil {
+		logger.Panicf("Failed unmarshaling ECDSA signature on identity: %s", string(sID.IdBytes))
+	}
+
+	// TODO: Make this robust... search the signature algorithm
+	// and match it to the curve.
+	curveOrderUsedByCryptoGen := elliptic.P256().Params().N
+	halfOrder := new(big.Int).Rsh(curveOrderUsedByCryptoGen, 1)
+	// Low S, nothing to do here!
+	if s.Cmp(halfOrder) != 1 {
+		return identity
+	}
+	// Else it's high-S, so shift it below half the order.
+	s.Sub(curveOrderUsedByCryptoGen, s)
+
+	var newCert certificate
+	_, err = asn1.Unmarshal(cert.Raw, &newCert)
+	if err != nil {
+		logger.Panicf("Failed unmarshaling certificate: %v", err)
+	}
+
+	newSig, _ := utils.MarshalECDSASignature(r, s)
+	newCert.SignatureValue = asn1.BitString{Bytes: newSig, BitLength: len(newSig) * 8}
+
+	newCert.Raw = nil
+	newRaw, err := asn1.Marshal(newCert)
+
+	sID.IdBytes = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: newRaw})
+	return protoutil.MarshalOrPanic(sID)
+}
+
+type certificate struct {
+	Raw                asn1.RawContent
+	TBSCertificate     tbsCertificate
+	SignatureAlgorithm pkix.AlgorithmIdentifier
+	SignatureValue     asn1.BitString
+}
+
+type tbsCertificate struct {
+	Raw                asn1.RawContent
+	Version            int `asn1:"optional,explicit,default:0,tag:0"`
+	SerialNumber       *big.Int
+	SignatureAlgorithm pkix.AlgorithmIdentifier
+	Issuer             asn1.RawValue
+	Validity           validity
+	Subject            asn1.RawValue
+	PublicKey          publicKeyInfo
+	UniqueId           asn1.BitString   `asn1:"optional,tag:1"`
+	SubjectUniqueId    asn1.BitString   `asn1:"optional,tag:2"`
+	Extensions         []pkix.Extension `asn1:"optional,explicit,tag:3"`
+}
+
+type validity struct {
+	NotBefore, NotAfter time.Time
+}
+
+type publicKeyInfo struct {
+	Raw       asn1.RawContent
+	Algorithm pkix.AlgorithmIdentifier
+	PublicKey asn1.BitString
 }
