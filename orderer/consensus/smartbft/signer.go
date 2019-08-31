@@ -7,10 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 package smartbft
 
 import (
-	"fmt"
-
 	"github.com/SmartBFT-Go/consensus/pkg/types"
-	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protoutil"
@@ -49,10 +46,6 @@ func (s *Signer) SignProposal(proposal types.Proposal) *types.Signature {
 			ConsenterMetadata: proposal.Metadata,
 		}),
 	}
-
-	sigHdr := &common.SignatureHeader{}
-	proto.Unmarshal(sig.SignatureHeader, sigHdr)
-	fmt.Println(">>>>>>>>>>> Signature identity:", string(sigHdr.Creator))
 
 	signature := protoutil.SignOrPanic(s.SignerSerializer, sig.AsBytes(s.SignerSerializer))
 	return &types.Signature{

@@ -308,7 +308,7 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			assertBlockReception(map[string]int{"testchannel1": 6}, network.Orderers, peer, network)
 		})
 
-		It("smartbft node addition", func() {
+		It("smartbft node addition and removal", func() {
 			network = nwo.New(nwo.MultiNodeSmartBFT(), testDir, client, StartPort(), components)
 			network.GenerateConfigTree()
 			network.Bootstrap()
@@ -446,7 +446,7 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			By("Waiting for the added orderer to see the leader")
 			Eventually(runner.Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Message from 0"))
 
-			time.Sleep(time.Second * 10)
+			time.Sleep(time.Second * 15)
 
 			By("Transact again")
 			invokeQuery(network, peer, orderer, channel, 50)
