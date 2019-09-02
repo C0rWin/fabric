@@ -159,12 +159,14 @@ func bftSmartConsensusBuild(
 	channelDecorator := zap.String("channel", c.support.ChainID())
 	logger := flogging.MustGetLogger("orderer.consensus.smartbft.consensus").With(channelDecorator)
 
+	config := smartbft.DefaultConfig
+	config.LeaderHeartbeatTimeout = time.Second * 10
+	config.SelfID = c.SelfID
+
 	consensus := &smartbft.Consensus{
-		SelfID:       c.SelfID,
-		BatchSize:    1,
-		BatchTimeout: 5 * time.Millisecond,
-		Logger:       logger,
-		Verifier:     c.verifier,
+		Config:   config,
+		Logger:   logger,
+		Verifier: c.verifier,
 		Signer: &Signer{
 			ID:               c.SelfID,
 			Logger:           flogging.MustGetLogger("orderer.consensus.smartbft.signer").With(channelDecorator),
@@ -192,10 +194,8 @@ func bftSmartConsensusBuild(
 				Timeout:       5 * time.Minute, // Externalize configuration
 			},
 		},
-		Scheduler:               time.NewTicker(time.Second).C,
-		ViewChangeResendTimeout: time.Second,
-		ViewChangerTicker:       time.NewTicker(time.Second).C,
-		ViewChangerTimeout:      time.Minute,
+		Scheduler:         time.NewTicker(time.Second).C,
+		ViewChangerTicker: time.NewTicker(time.Second).C,
 	}
 
 	proposal, signatures := c.lastPersistedProposalAndSignatures()
