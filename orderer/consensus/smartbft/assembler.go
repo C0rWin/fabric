@@ -13,7 +13,7 @@ import (
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/protos/common"
-	"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/pkg/errors"
 )
 
@@ -42,14 +42,14 @@ func (a *Assembler) AssembleProposal(metadata []byte, requests [][]byte) (nextPr
 	lastConfigBlock := lastConfigBlockFromLedgerOrPanic(a.Ledger, a.Logger)
 	lastBlock := lastBlockFromLedgerOrPanic(a.Ledger, a.Logger)
 
-	block := protoutil.NewBlock(lastBlock.Header.Number+1, protoutil.BlockHeaderHash(lastBlock.Header))
+	block := common.NewBlock(lastBlock.Header.Number+1, lastBlock.Header.Hash())
 	block.Data = &common.BlockData{Data: batchedRequests}
-	block.Header.DataHash = protoutil.BlockDataHash(block.Data)
-	block.Metadata.Metadata[common.BlockMetadataIndex_LAST_CONFIG] = protoutil.MarshalOrPanic(&common.Metadata{
-		Value: protoutil.MarshalOrPanic(&common.LastConfig{Index: lastConfigBlock.Header.Number}),
+	block.Header.DataHash = block.Data.Hash()
+	block.Metadata.Metadata[common.BlockMetadataIndex_LAST_CONFIG] = utils.MarshalOrPanic(&common.Metadata{
+		Value: utils.MarshalOrPanic(&common.LastConfig{Index: lastConfigBlock.Header.Number}),
 	})
-	block.Metadata.Metadata[common.BlockMetadataIndex_SIGNATURES] = protoutil.MarshalOrPanic(&common.Metadata{
-		Value: protoutil.MarshalOrPanic(&common.OrdererBlockMetadata{
+	block.Metadata.Metadata[common.BlockMetadataIndex_SIGNATURES] = utils.MarshalOrPanic(&common.Metadata{
+		Value: utils.MarshalOrPanic(&common.OrdererBlockMetadata{
 			ConsenterMetadata: metadata,
 			LastConfig: &common.LastConfig{
 				Index: lastConfigBlock.Header.Number,
@@ -58,8 +58,8 @@ func (a *Assembler) AssembleProposal(metadata []byte, requests [][]byte) (nextPr
 	})
 
 	tuple := &ByteBufferTuple{
-		A: protoutil.MarshalOrPanic(block.Data),
-		B: protoutil.MarshalOrPanic(block.Metadata),
+		A: utils.MarshalOrPanic(block.Data),
+		B: utils.MarshalOrPanic(block.Metadata),
 	}
 
 	configEnvelope, err := ConfigurationEnvelop(lastConfigBlock)
@@ -68,7 +68,7 @@ func (a *Assembler) AssembleProposal(metadata []byte, requests [][]byte) (nextPr
 	}
 
 	prop := types.Proposal{
-		Header:               protoutil.BlockHeaderBytes(block.Header),
+		Header:               block.Header.Bytes(),
 		Payload:              tuple.ToBytes(),
 		Metadata:             metadata,
 		VerificationSequence: int64(configEnvelope.Config.Sequence),
@@ -83,14 +83,14 @@ func singleConfigTxOrSeveralNonConfigTx(requests [][]byte, logger PanicLogger) [
 	var i int
 	for i < len(requests) {
 		currentRequest := requests[i]
-		envelope, err := protoutil.UnmarshalEnvelope(currentRequest)
+		envelope, err := utils.UnmarshalEnvelope(currentRequest)
 		if err != nil {
 			logger.Panicf("Programming error, received bad envelope but should have validated it: %v", err)
 			continue
 		}
 
 		// If we saw a config transaction, we cannot add any more transactions to the batch.
-		if protoutil.IsConfigTransaction(envelope) {
+		if utils.IsConfigTransaction(envelope) {
 			break
 		}
 

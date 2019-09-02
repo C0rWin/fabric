@@ -32,7 +32,7 @@ import (
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/msp"
 	"github.com/hyperledger/fabric/protos/orderer/smartbft"
-	"github.com/hyperledger/fabric/protoutil"
+	utils2 "github.com/hyperledger/fabric/protos/utils"
 	"github.com/pkg/errors"
 )
 
@@ -49,10 +49,10 @@ func newBlockPuller(
 	}
 
 	stdDialer := &cluster.StandardDialer{
-		Config: baseDialer.Config.Clone(),
+		ClientConfig: baseDialer.ClientConfig.Clone(),
 	}
-	stdDialer.Config.AsyncConnect = false
-	stdDialer.Config.SecOpts.VerifyCertificate = nil
+	stdDialer.ClientConfig.AsyncConnect = false
+	stdDialer.ClientConfig.SecOpts.VerifyCertificate = nil
 
 	// Extract the TLS CA certs and endpoints from the configuration,
 	endpoints, err := etcdraft.EndpointconfigFromFromSupport(support)
@@ -60,10 +60,10 @@ func newBlockPuller(
 		return nil, err
 	}
 
-	der, _ := pem.Decode(stdDialer.Config.SecOpts.Certificate)
+	der, _ := pem.Decode(stdDialer.ClientConfig.SecOpts.Certificate)
 	if der == nil {
 		return nil, errors.Errorf("client certificate isn't in PEM format: %v",
-			string(stdDialer.Config.SecOpts.Certificate))
+			string(stdDialer.ClientConfig.SecOpts.Certificate))
 	}
 
 	bp := &cluster.BlockPuller{
@@ -88,7 +88,7 @@ func getViewMetadataFromBlock(block *common.Block) (smartbftprotos.ViewMetadata,
 		return smartbftprotos.ViewMetadata{}, nil
 	}
 
-	signatureMetadata := protoutil.GetMetadataFromBlockOrPanic(block, common.BlockMetadataIndex_SIGNATURES)
+	signatureMetadata := utils2.GetMetadataFromBlockOrPanic(block, common.BlockMetadataIndex_SIGNATURES)
 	ordererMD := &common.OrdererBlockMetadata{}
 	if err := proto.Unmarshal(signatureMetadata.Value, ordererMD); err != nil {
 		return smartbftprotos.ViewMetadata{}, errors.Wrap(err, "failed unmarshaling OrdererBlockMetadata")
@@ -146,7 +146,7 @@ func (ri *RequestInspector) requestIDFromSigHeader(sigHdr *common.SignatureHeade
 }
 
 func (ri *RequestInspector) unwrapReq(req []byte) (*request, error) {
-	envelope, err := protoutil.UnmarshalEnvelope(req)
+	envelope, err := utils2.UnmarshalEnvelope(req)
 	if err != nil {
 		return nil, err
 	}
@@ -172,12 +172,12 @@ func (ri *RequestInspector) unwrapReq(req []byte) (*request, error) {
 
 // ConfigurationEnvelop extract configuration envelop
 func ConfigurationEnvelop(configBlock *common.Block) (*common.ConfigEnvelope, error) {
-	envelopeConfig, err := protoutil.ExtractEnvelope(configBlock, 0)
+	envelopeConfig, err := utils2.ExtractEnvelope(configBlock, 0)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to extract envelop from block")
 	}
 
-	payload, err := protoutil.UnmarshalPayload(envelopeConfig.Payload)
+	payload, err := utils2.UnmarshalPayload(envelopeConfig.Payload)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to unmarshal envelop payload")
 	}
@@ -199,7 +199,7 @@ func (conCert ConsenterCertificate) IsConsenterOfChannel(configBlock *common.Blo
 	if configBlock == nil {
 		return errors.New("nil block")
 	}
-	envelopeConfig, err := protoutil.ExtractEnvelope(configBlock, 0)
+	envelopeConfig, err := utils2.ExtractEnvelope(configBlock, 0)
 	if err != nil {
 		return err
 	}
@@ -268,7 +268,7 @@ func sanitizeIdentity(identity []byte, logger *flogging.FabricLogger) []byte {
 	newRaw, err := asn1.Marshal(newCert)
 
 	sID.IdBytes = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: newRaw})
-	return protoutil.MarshalOrPanic(sID)
+	return utils2.MarshalOrPanic(sID)
 }
 
 type certificate struct {

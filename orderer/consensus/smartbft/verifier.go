@@ -18,7 +18,7 @@ import (
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/msp"
-	"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/pkg/errors"
 )
 
@@ -29,13 +29,13 @@ type Sequencer interface {
 
 // BlockVerifier verifies block signatures
 type BlockVerifier interface {
-	VerifyBlockSignature(sd []*protoutil.SignedData, _ *common.ConfigEnvelope) error
+	VerifyBlockSignature(sd []*common.SignedData, _ *common.ConfigEnvelope) error
 }
 
 // AccessController is used to determine if a signature of a certain client is valid
 type AccessController interface {
 	// Evaluate takes a set of SignedData and evaluates whether this set of signatures satisfies the policy
-	Evaluate(signatureSet []*protoutil.SignedData) error
+	Evaluate(signatureSet []*common.SignedData) error
 }
 
 type requestVerifier func(req []byte) (types.RequestInfo, error)
@@ -93,7 +93,7 @@ func (v *Verifier) VerifySignature(signature types.Signature) error {
 		return errors.Errorf("node with id of %d doesn't exist", signature.Id)
 	}
 
-	return v.AccessController.Evaluate([]*protoutil.SignedData{
+	return v.AccessController.Evaluate([]*common.SignedData{
 		{Identity: identity, Data: signature.Msg, Signature: signature.Value},
 	})
 }
@@ -104,7 +104,7 @@ func (v *Verifier) VerifyRequest(rawRequest []byte) (types.RequestInfo, error) {
 		return types.RequestInfo{}, err
 	}
 
-	err = v.AccessController.Evaluate([]*protoutil.SignedData{
+	err = v.AccessController.Evaluate([]*common.SignedData{
 		{Identity: req.sigHdr.Creator, Data: req.envelope.Payload, Signature: req.envelope.Signature},
 	})
 
@@ -130,7 +130,7 @@ func (v *Verifier) VerifyConsenterSig(signature types.Signature, prop types.Prop
 	}
 
 	expectedMsgToBeSigned := util.ConcatenateBytes(sig.OrdererBlockMetadata, sig.SignatureHeader, sig.BlockHeader)
-	return v.BlockVerifier.VerifyBlockSignature([]*protoutil.SignedData{{
+	return v.BlockVerifier.VerifyBlockSignature([]*common.SignedData{{
 		Signature: signature.Value,
 		Data:      expectedMsgToBeSigned,
 		Identity:  identity,
@@ -154,7 +154,7 @@ func verifyHashChain(block *common.Block, prevHeaderHash string) error {
 	}
 
 	dataHash := hex.EncodeToString(block.Header.DataHash)
-	actualHashOfData := hex.EncodeToString(protoutil.BlockDataHash(block.Data))
+	actualHashOfData := hex.EncodeToString(block.Data.Hash())
 	if dataHash != actualHashOfData {
 		return errors.Errorf("data hash is %s but expected %s", dataHash, actualHashOfData)
 	}
@@ -170,7 +170,7 @@ func (v *Verifier) verifyBlockDataAndMetadata(block *common.Block, metadata []by
 		return nil, errors.New("block metadata is either missing or contains too few entries")
 	}
 
-	lastConfig, err := protoutil.GetLastConfigIndexFromBlock(block)
+	lastConfig, err := utils.GetLastConfigIndexFromBlock(block)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not fetch last config from block")
 	}
@@ -185,7 +185,7 @@ func (v *Verifier) verifyBlockDataAndMetadata(block *common.Block, metadata []by
 		return nil, errors.Errorf("last config in proposal is %d, expecting %d", configEnvelope.Config.Sequence, v.VerificationSequence())
 	}
 
-	signatureMetadata, err := protoutil.GetMetadataFromBlock(block, common.BlockMetadataIndex_SIGNATURES)
+	signatureMetadata, err := utils.GetMetadataFromBlock(block, common.BlockMetadataIndex_SIGNATURES)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +220,7 @@ func (v *Verifier) verifyBlockDataAndMetadata(block *common.Block, metadata []by
 		return nil, errors.Errorf("last config in block orderer metadata points to %d but our persisted last config is %d", ordererMetadataFromSignature.LastConfig.Index, lastConfig)
 	}
 
-	rawLastConfig, err := protoutil.GetMetadataFromBlock(block, common.BlockMetadataIndex_LAST_CONFIG)
+	rawLastConfig, err := utils.GetMetadataFromBlock(block, common.BlockMetadataIndex_LAST_CONFIG)
 	if err != nil {
 		return nil, err
 	}

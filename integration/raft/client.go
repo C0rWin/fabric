@@ -4,7 +4,7 @@ Copyright IBM Corp All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package e2e
+package raft
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 	"github.com/hyperledger/fabric/integration/nwo"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/orderer"
-	"github.com/hyperledger/fabric/protos/utils"
+	"github.com/hyperledger/fabric/protoutil"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 )
@@ -131,7 +131,7 @@ func CreateGRPCClient(n *nwo.Network, o *nwo.Orderer) (*comm.GRPCClient, error) 
 }
 
 func CreateBroadcastEnvelope(n *nwo.Network, signer interface{}, channel string, data []byte) *common.Envelope {
-	env, err := utils.CreateSignedEnvelope(
+	env, err := protoutil.CreateSignedEnvelope(
 		common.HeaderType_MESSAGE,
 		channel,
 		nil,
@@ -151,7 +151,7 @@ func CreateDeliverEnvelope(n *nwo.Network, entity interface{}, blkNum uint64, ch
 			Specified: &orderer.SeekSpecified{Number: blkNum},
 		},
 	}
-	env, err := utils.CreateSignedEnvelope(
+	env, err := protoutil.CreateSignedEnvelope(
 		common.HeaderType_DELIVER_SEEK_INFO,
 		channel,
 		nil,
@@ -190,19 +190,19 @@ func signAsAdmin(n *nwo.Network, entity interface{}, env *common.Envelope) *comm
 	signer, err := signer.NewSigner(conf)
 	Expect(err).NotTo(HaveOccurred())
 
-	payload, err := utils.ExtractPayload(env)
+	payload, err := protoutil.ExtractPayload(env)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(payload.Header).NotTo(BeNil())
 	Expect(payload.Header.ChannelHeader).NotTo(BeNil())
 
-	nonce, err := utils.CreateNonce()
+	nonce, err := protoutil.CreateNonce()
 	Expect(err).NotTo(HaveOccurred())
 	sighdr := &common.SignatureHeader{
 		Creator: signer.Creator,
 		Nonce:   nonce,
 	}
-	payload.Header.SignatureHeader = utils.MarshalOrPanic(sighdr)
-	payloadBytes := utils.MarshalOrPanic(payload)
+	payload.Header.SignatureHeader = protoutil.MarshalOrPanic(sighdr)
+	payloadBytes := protoutil.MarshalOrPanic(payload)
 
 	sig, err := signer.Sign(payloadBytes)
 	Expect(err).NotTo(HaveOccurred())

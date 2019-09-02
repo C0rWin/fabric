@@ -13,6 +13,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/hyperledger/fabric/integration"
 	"github.com/hyperledger/fabric/integration/nwo"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -25,10 +26,10 @@ func TestEndToEnd(t *testing.T) {
 }
 
 var components *nwo.Components
+var suiteBase = integration.E2EBasePort
 
 var _ = SynchronizedBeforeSuite(func() []byte {
 	components = &nwo.Components{}
-	components.Build()
 
 	payload, err := json.Marshal(components)
 	Expect(err).NotTo(HaveOccurred())
@@ -43,10 +44,6 @@ var _ = SynchronizedAfterSuite(func() {
 }, func() {
 	components.Cleanup()
 })
-
-func BasePort() int {
-	return 30000 + 1000*GinkgoParallelNode()
-}
 
 type DatagramReader struct {
 	buffer    *gbytes.Buffer
@@ -118,4 +115,8 @@ func (dr *DatagramReader) Close() error {
 		}
 	})
 	return dr.err
+}
+
+func StartPort() int {
+	return suiteBase + (GinkgoParallelNode()-1)*100
 }

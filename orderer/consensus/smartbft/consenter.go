@@ -19,10 +19,10 @@ import (
 	"github.com/golang/protobuf/proto"
 	proto2 "github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/channelconfig"
+	"github.com/hyperledger/fabric/common/crypto"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/metrics"
 	"github.com/hyperledger/fabric/core/comm"
-	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/orderer/common/localconfig"
 	"github.com/hyperledger/fabric/orderer/common/multichannel"
@@ -31,7 +31,7 @@ import (
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/orderer"
 	"github.com/hyperledger/fabric/protos/orderer/smartbft"
-	"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
 )
@@ -50,7 +50,7 @@ type Consenter struct {
 	Cert             []byte
 	Comm             *cluster.Comm
 	Chains           ChainGetter
-	SignerSerializer identity.SignerSerializer
+	SignerSerializer crypto.LocalSigner
 	Registrar        *multichannel.Registrar
 	WALBaseDir       string
 	ClusterDialer    *cluster.PredicateDialer
@@ -59,7 +59,7 @@ type Consenter struct {
 
 // New creates Consenter of type smart bft
 func New(
-	signerSerializer identity.SignerSerializer,
+	signerSerializer crypto.LocalSigner,
 	clusterDialer *cluster.PredicateDialer,
 	conf *localconfig.TopLevel,
 	srvConf comm.ServerConfig,
@@ -188,7 +188,7 @@ func (c *Consenter) HandleChain(support consensus.ConsenterSupport, metadata *co
 	if block == nil {
 		return nil, errors.New("nil block")
 	}
-	envelopeConfig, err := protoutil.ExtractEnvelope(block, 0)
+	envelopeConfig, err := utils.ExtractEnvelope(block, 0)
 	if err != nil {
 		return nil, err
 	}

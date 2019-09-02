@@ -16,16 +16,15 @@ import (
 	"github.com/SmartBFT-Go/consensus/pkg/wal"
 	"github.com/SmartBFT-Go/consensus/smartbftprotos"
 	"github.com/gogo/protobuf/proto"
+	"github.com/hyperledger/fabric/common/crypto"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/policies"
-	"github.com/hyperledger/fabric/core/policy"
-	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/orderer/common/msgprocessor"
 	"github.com/hyperledger/fabric/orderer/consensus"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/msp"
-	"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
@@ -53,8 +52,8 @@ type BFTChain struct {
 	SelfID           uint64
 	BlockPuller      BlockPuller
 	Comm             cluster.Communicator
-	SignerSerializer identity.SignerSerializer
-	PolicyManager    policy.PolicyManager
+	SignerSerializer crypto.LocalSigner
+	PolicyManager    policies.Manager
 	RemoteNodes      []cluster.RemoteNode
 	ID2Identities    NodeIdentitiesByID
 	Logger           *flogging.FabricLogger
@@ -71,8 +70,8 @@ func NewChain(
 	walDir string,
 	blockPuller BlockPuller,
 	comm cluster.Communicator,
-	signerSerializer identity.SignerSerializer,
-	policyManager policy.PolicyManager,
+	signerSerializer crypto.LocalSigner,
+	policyManager policies.Manager,
 	remoteNodes []cluster.RemoteNode,
 	id2Identities NodeIdentitiesByID,
 	support consensus.ConsenterSupport,
@@ -110,7 +109,7 @@ func NewChain(
 
 	if c.verifier.LastCommittedBlockHash == "" {
 		lastBlock := lastBlockFromLedgerOrPanic(support, c.Logger)
-		c.verifier.LastCommittedBlockHash = hex.EncodeToString(protoutil.BlockHeaderHash(lastBlock.Header))
+		c.verifier.LastCommittedBlockHash = hex.EncodeToString(lastBlock.Header.Hash())
 	}
 
 	c.consensus = bftSmartConsensusBuild(c, requestInspector, nodes)
@@ -211,7 +210,7 @@ func verifierBuild(
 	support consensus.ConsenterSupport,
 	requestInspector *RequestInspector,
 	id2Identities NodeIdentitiesByID,
-	policyManager policy.PolicyManager,
+	policyManager policies.Manager,
 ) *Verifier {
 	channelDecorator := zap.String("channel", support.ChainID())
 	return &Verifier{
@@ -264,14 +263,14 @@ func (c *BFTChain) Deliver(proposal types.Proposal, signatures []types.Signature
 		})
 	}
 
-	block.Metadata.Metadata[common.BlockMetadataIndex_SIGNATURES] = protoutil.MarshalOrPanic(&common.Metadata{
+	block.Metadata.Metadata[common.BlockMetadataIndex_SIGNATURES] = utils.MarshalOrPanic(&common.Metadata{
 		Value:      ordererBlockMetadata,
 		Signatures: sigs,
 	})
 
 	defer c.updateLastCommittedHash(block)
 	c.Logger.Debugf("Delivering proposal, writing block %d to the ledger, node id %d", block.Header.Number, c.SelfID)
-	if protoutil.IsConfigBlock(block) {
+	if utils.IsConfigBlock(block) {
 		c.support.WriteConfigBlock(block, nil)
 		return
 	}
@@ -281,7 +280,7 @@ func (c *BFTChain) Deliver(proposal types.Proposal, signatures []types.Signature
 func (c *BFTChain) updateLastCommittedHash(block *common.Block) {
 	c.verifier.lock.Lock()
 	defer c.verifier.lock.Unlock()
-	c.verifier.LastCommittedBlockHash = hex.EncodeToString(protoutil.BlockHeaderHash(block.Header))
+	c.verifier.LastCommittedBlockHash = hex.EncodeToString(block.Header.Hash())
 }
 
 func (c *BFTChain) Order(env *common.Envelope, configSeq uint64) error {
@@ -343,10 +342,10 @@ func (c *BFTChain) lastPersistedProposalAndSignatures() (*types.Proposal, []type
 	lastBlock := lastBlockFromLedgerOrPanic(c.support, c.Logger)
 
 	proposal := &types.Proposal{
-		Header: protoutil.BlockHeaderBytes(lastBlock.Header),
+		Header: lastBlock.Header.Hash(),
 		Payload: (&ByteBufferTuple{
-			A: protoutil.MarshalOrPanic(lastBlock.Data),
-			B: protoutil.MarshalOrPanic(lastBlock.Metadata),
+			A: utils.MarshalOrPanic(lastBlock.Data),
+			B: utils.MarshalOrPanic(lastBlock.Metadata),
 		}).ToBytes(),
 	}
 
@@ -378,7 +377,7 @@ func (c *BFTChain) lastPersistedProposalAndSignatures() (*types.Proposal, []type
 		}
 		sig := &Signature{
 			SignatureHeader:      sigMD.SignatureHeader,
-			BlockHeader:          protoutil.BlockHeaderBytes(lastBlock.Header),
+			BlockHeader:          lastBlock.Header.Hash(),
 			OrdererBlockMetadata: signatureMetadata.Value,
 		}
 		signatures = append(signatures, types.Signature{
@@ -395,7 +394,7 @@ type chainACL struct {
 	Logger        *flogging.FabricLogger
 }
 
-func (c *chainACL) Evaluate(signatureSet []*protoutil.SignedData) error {
+func (c *chainACL) Evaluate(signatureSet []*common.SignedData) error {
 	policy, ok := c.policyManager.GetPolicy(policies.ChannelWriters)
 	if !ok {
 		return fmt.Errorf("could not find policy %s", policies.ChannelWriters)

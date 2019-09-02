@@ -10,7 +10,7 @@ import (
 	protos "github.com/SmartBFT-Go/consensus/smartbftprotos"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/protos/orderer"
-	"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/pkg/errors"
 )
 
@@ -63,6 +63,6 @@ func (in *Ingreess) OnSubmit(channel string, sender uint64, request *orderer.Sub
 		in.Logger.Warningf("An attempt to submit a transaction to a non existing channel (%s) was made by %d", channel, sender)
 		return errors.Errorf("channel %s doesn't exist", channel)
 	}
-	receiver.HandleRequest(sender, protoutil.MarshalOrPanic(request.Payload))
+	receiver.HandleRequest(sender, utils.MarshalOrPanic(request.Payload))
 	return nil
 }

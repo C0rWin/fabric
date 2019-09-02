@@ -17,7 +17,7 @@ import (
 	"github.com/hyperledger/fabric/orderer/common/localconfig"
 	"github.com/hyperledger/fabric/orderer/mocks/common/multichannel"
 	"github.com/hyperledger/fabric/protos/common"
-	"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -33,8 +33,8 @@ func TestNewBlockPuller(t *testing.T) {
 
 	lastBlock := &common.Block{
 		Metadata: &common.BlockMetadata{
-			Metadata: [][]byte{{}, protoutil.MarshalOrPanic(&common.Metadata{
-				Value: protoutil.MarshalOrPanic(&common.LastConfig{Index: 42}),
+			Metadata: [][]byte{{}, utils.MarshalOrPanic(&common.Metadata{
+				Value: utils.MarshalOrPanic(&common.LastConfig{Index: 42}),
 			})},
 		},
 	}
@@ -48,7 +48,7 @@ func TestNewBlockPuller(t *testing.T) {
 	}
 
 	dialer := &cluster.PredicateDialer{
-		Config: comm.ClientConfig{
+		ClientConfig: comm.ClientConfig{
 			SecOpts: &comm.SecureOptions{
 				Certificate: ca.CertBytes(),
 			},

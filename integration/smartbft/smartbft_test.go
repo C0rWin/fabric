@@ -25,7 +25,7 @@ import (
 	"github.com/hyperledger/fabric/integration/nwo/commands"
 	"github.com/hyperledger/fabric/protos/msp"
 	"github.com/hyperledger/fabric/protos/orderer/smartbft"
-	"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric/protos/utils"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -389,7 +389,7 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 					md.Consenters = append(md.Consenters, &smartbft.Consenter{
 						MspId:       "OrdererMSP",
 						ConsenterId: 4,
-						Identity: protoutil.MarshalOrPanic(&msp.SerializedIdentity{
+						Identity: utils.MarshalOrPanic(&msp.SerializedIdentity{
 							Mspid:   "OrdererMSP",
 							IdBytes: ordererIdentity,
 						}),
@@ -434,7 +434,7 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 
 			By("Planting last config block in the orderer's file system")
 			configBlock := nwo.GetConfigBlock(network, peer, orderer, "systemchannel")
-			err = ioutil.WriteFile(filepath.Join(testDir, "systemchannel_block.pb"), protoutil.MarshalOrPanic(configBlock), 0644)
+			err = ioutil.WriteFile(filepath.Join(testDir, "systemchannel_block.pb"), utils.MarshalOrPanic(configBlock), 0644)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Launching the added orderer")

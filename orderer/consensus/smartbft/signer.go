@@ -8,20 +8,20 @@ package smartbft
 
 import (
 	"github.com/SmartBFT-Go/consensus/pkg/types"
-	"github.com/hyperledger/fabric/internal/pkg/identity"
+	"github.com/hyperledger/fabric/common/crypto"
 	"github.com/hyperledger/fabric/protos/common"
-	"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric/protos/utils"
 )
 
 //go:generate mockery -dir . -name SignerSerializer -case underscore -output ./mocks/
 
 type SignerSerializer interface {
-	identity.SignerSerializer
+	crypto.LocalSigner
 }
 
 type Signer struct {
 	ID               uint64
-	SignerSerializer identity.SignerSerializer
+	SignerSerializer SignerSerializer
 	Logger           PanicLogger
 }
 
@@ -39,15 +39,15 @@ func (s *Signer) SignProposal(proposal types.Proposal) *types.Signature {
 		s.Logger.Panicf("Tried to sign bad proposal: %v", err)
 	}
 	sig := Signature{
-		BlockHeader:     protoutil.BlockHeaderBytes(block.Header),
-		SignatureHeader: protoutil.MarshalOrPanic(protoutil.NewSignatureHeaderOrPanic(s.SignerSerializer)),
-		OrdererBlockMetadata: protoutil.MarshalOrPanic(&common.OrdererBlockMetadata{
+		BlockHeader:     block.Header.Bytes(),
+		SignatureHeader: utils.MarshalOrPanic(utils.NewSignatureHeaderOrPanic(s.SignerSerializer)),
+		OrdererBlockMetadata: utils.MarshalOrPanic(&common.OrdererBlockMetadata{
 			LastConfig:        &common.LastConfig{Index: uint64(proposal.VerificationSequence)},
 			ConsenterMetadata: proposal.Metadata,
 		}),
 	}
 
-	signature := protoutil.SignOrPanic(s.SignerSerializer, sig.AsBytes(s.SignerSerializer))
+	signature := utils.SignOrPanic(s.SignerSerializer, sig.AsBytes())
 	return &types.Signature{
 		Id:    s.ID,
 		Value: signature,

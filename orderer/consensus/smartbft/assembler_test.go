@@ -14,7 +14,7 @@ import (
 	"github.com/hyperledger/fabric/orderer/consensus/smartbft"
 	"github.com/hyperledger/fabric/orderer/consensus/smartbft/mocks"
 	"github.com/hyperledger/fabric/protos/common"
-	"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -25,7 +25,7 @@ var (
 
 func TestAssembler(t *testing.T) {
 	lastBlock := makeNonConfigBlock(19, 10)
-	lastHash := protoutil.BlockHeaderHash(lastBlock.Header)
+	lastHash := lastBlock.Header.Hash()
 	lastConfigBlock := makeConfigBlock(10)
 
 	ledger := &mocks.Ledger{}
@@ -94,10 +94,10 @@ func TestAssembler(t *testing.T) {
 }
 
 func makeTx(headerType int32) []byte {
-	return protoutil.MarshalOrPanic(&common.Envelope{
-		Payload: protoutil.MarshalOrPanic(&common.Payload{
+	return utils.MarshalOrPanic(&common.Envelope{
+		Payload: utils.MarshalOrPanic(&common.Payload{
 			Header: &common.Header{
-				ChannelHeader: protoutil.MarshalOrPanic(&common.ChannelHeader{
+				ChannelHeader: utils.MarshalOrPanic(&common.ChannelHeader{
 					Type:      headerType,
 					ChannelId: "test-chain",
 				}),
@@ -116,8 +116,8 @@ func makeNonConfigBlock(seq, lastConfigSeq uint64) *common.Block {
 		},
 		Metadata: &common.BlockMetadata{
 			Metadata: [][]byte{{},
-				protoutil.MarshalOrPanic(&common.Metadata{
-					Value: protoutil.MarshalOrPanic(&common.LastConfig{Index: lastConfigSeq}),
+				utils.MarshalOrPanic(&common.Metadata{
+					Value: utils.MarshalOrPanic(&common.LastConfig{Index: lastConfigSeq}),
 				})},
 		},
 	}
@@ -129,9 +129,9 @@ func makeConfigBlock(seq uint64) *common.Block {
 			Number: seq,
 		},
 		Data: &common.BlockData{
-			Data: [][]byte{protoutil.MarshalOrPanic(&common.Envelope{
-				Payload: protoutil.MarshalOrPanic(&common.Payload{
-					Data: protoutil.MarshalOrPanic(&common.ConfigEnvelope{
+			Data: [][]byte{utils.MarshalOrPanic(&common.Envelope{
+				Payload: utils.MarshalOrPanic(&common.Payload{
+					Data: utils.MarshalOrPanic(&common.ConfigEnvelope{
 						Config: &common.Config{
 							Sequence: 10,
 						},
@@ -141,24 +141,24 @@ func makeConfigBlock(seq uint64) *common.Block {
 		},
 		Metadata: &common.BlockMetadata{
 			Metadata: [][]byte{{},
-				protoutil.MarshalOrPanic(&common.Metadata{
-					Value: protoutil.MarshalOrPanic(&common.LastConfig{Index: 666}),
+				utils.MarshalOrPanic(&common.Metadata{
+					Value: utils.MarshalOrPanic(&common.LastConfig{Index: 666}),
 				})},
 		},
 	}
 }
 
 func proposalFromRequests(seq, lastConfigSeq uint64, lastBlockHash, metadata []byte, requests ...[]byte) types.Proposal {
-	block := protoutil.NewBlock(seq, nil)
+	block := common.NewBlock(seq, nil)
 	block.Data = &common.BlockData{Data: requests}
-	block.Header.DataHash = protoutil.BlockDataHash(block.Data)
+	block.Header.DataHash = block.Data.Hash()
 	block.Header.PreviousHash = lastBlockHash
-	block.Metadata.Metadata[common.BlockMetadataIndex_LAST_CONFIG] = protoutil.MarshalOrPanic(&common.Metadata{
-		Value: protoutil.MarshalOrPanic(&common.LastConfig{Index: lastConfigSeq}),
+	block.Metadata.Metadata[common.BlockMetadataIndex_LAST_CONFIG] = utils.MarshalOrPanic(&common.Metadata{
+		Value: utils.MarshalOrPanic(&common.LastConfig{Index: lastConfigSeq}),
 	})
 
-	block.Metadata.Metadata[common.BlockMetadataIndex_SIGNATURES] = protoutil.MarshalOrPanic(&common.Metadata{
-		Value: protoutil.MarshalOrPanic(&common.OrdererBlockMetadata{
+	block.Metadata.Metadata[common.BlockMetadataIndex_SIGNATURES] = utils.MarshalOrPanic(&common.Metadata{
+		Value: utils.MarshalOrPanic(&common.OrdererBlockMetadata{
 			ConsenterMetadata: metadata,
 			LastConfig: &common.LastConfig{
 				Index: lastConfigSeq,
@@ -167,12 +167,12 @@ func proposalFromRequests(seq, lastConfigSeq uint64, lastBlockHash, metadata []b
 	})
 
 	tuple := &smartbft.ByteBufferTuple{
-		A: protoutil.MarshalOrPanic(block.Data),
-		B: protoutil.MarshalOrPanic(block.Metadata),
+		A: utils.MarshalOrPanic(block.Data),
+		B: utils.MarshalOrPanic(block.Metadata),
 	}
 
 	return types.Proposal{
-		Header:               protoutil.BlockHeaderBytes(block.Header),
+		Header:               block.Header.Bytes(),
 		Payload:              tuple.ToBytes(),
 		Metadata:             metadata,
 		VerificationSequence: int64(lastConfigSeq),

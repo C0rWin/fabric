@@ -4,14 +4,13 @@ Copyright IBM Corp All Rights Reserved.
 SPDX-License-Identifier: Apache-2.0
 */
 
-package e2e
+package sbe
 
 import (
 	"encoding/json"
-	"fmt"
-	"runtime"
 	"testing"
 
+	"github.com/hyperledger/fabric/integration"
 	"github.com/hyperledger/fabric/integration/nwo"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -23,13 +22,13 @@ func TestEndToEnd(t *testing.T) {
 }
 
 var components *nwo.Components
+var suiteBase = integration.SBEBasePort
 
 var _ = SynchronizedBeforeSuite(func() []byte {
 	nwo.RequiredImages = []string{
-		fmt.Sprintf("hyperledger/fabric-ccenv:%s-latest", runtime.GOARCH),
+		nwo.CCEnvDefaultImage,
 	}
 	components = &nwo.Components{}
-	components.Build()
 
 	payload, err := json.Marshal(components)
 	Expect(err).NotTo(HaveOccurred())
@@ -44,3 +43,7 @@ var _ = SynchronizedAfterSuite(func() {
 }, func() {
 	components.Cleanup()
 })
+
+func StartPort() int {
+	return suiteBase + (GinkgoParallelNode()-1)*100
+}

@@ -15,7 +15,7 @@ import (
 	"github.com/hyperledger/fabric/orderer/consensus/smartbft/mocks"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/orderer"
-	"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -41,7 +41,7 @@ func TestEgressSendConsensus(t *testing.T) {
 	egress.SendConsensus(42, viewData)
 
 	rpc.AssertCalled(t, "SendConsensus", uint64(42), &orderer.ConsensusRequest{
-		Payload: protoutil.MarshalOrPanic(viewData),
+		Payload: utils.MarshalOrPanic(viewData),
 		Channel: "test",
 	})
 }
@@ -65,7 +65,7 @@ func TestEgressSendTransaction(t *testing.T) {
 	})
 
 	t.Run("valid transaction", func(t *testing.T) {
-		egress.SendTransaction(42, protoutil.MarshalOrPanic(&common.Envelope{
+		egress.SendTransaction(42, utils.MarshalOrPanic(&common.Envelope{
 			Payload: []byte{1, 2, 3},
 		}))
 	})

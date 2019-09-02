@@ -13,7 +13,6 @@ import (
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/util"
-	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/pkg/errors"
 )
@@ -37,7 +36,7 @@ func (sig *Signature) Marshal() []byte {
 	return bytes
 }
 
-func (sig Signature) AsBytes(signer identity.Signer) []byte {
+func (sig Signature) AsBytes() []byte {
 	msg2Sign := util.ConcatenateBytes(sig.OrdererBlockMetadata, sig.SignatureHeader, sig.BlockHeader)
 	return msg2Sign
 }

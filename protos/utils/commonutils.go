@@ -231,7 +231,7 @@ func NewSignatureHeaderOrPanic(signer crypto.LocalSigner) *cb.SignatureHeader {
 }
 
 // SignOrPanic signs a message and panics on error.
-func SignOrPanic(signer crypto.LocalSigner, msg []byte) []byte {
+func SignOrPanic(signer crypto.Signer, msg []byte) []byte {
 	if signer == nil {
 		panic(errors.New("invalid signer. cannot be nil"))
 	}

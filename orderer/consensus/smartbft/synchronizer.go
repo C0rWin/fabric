@@ -13,7 +13,7 @@ import (
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/orderer/consensus"
 	"github.com/hyperledger/fabric/protos/common"
-	"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/pkg/errors"
 )
 
@@ -87,7 +87,7 @@ func (s *Synchronizer) synchronize() (smartbftprotos.ViewMetadata, uint64, error
 			s.Logger.Debugf("Failed to fetch block [%d] from cluster", seq)
 			break
 		}
-		if protoutil.IsConfigBlock(block) {
+		if utils.IsConfigBlock(block) {
 			s.Support.WriteConfigBlock(block, nil)
 		} else {
 			s.Support.WriteBlock(block, nil)

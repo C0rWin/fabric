@@ -48,7 +48,7 @@ func (c *Components) Cleanup() {
 
 func (c *Components) Cryptogen() string {
 	c.cryptoOnce.Do(func() {
-		c.Paths["cryptogen"] = c.build("cryptogen", "github.com/hyperledger/fabric/cmd/cryptogen")
+		c.Paths["cryptogen"] = c.build("cryptogen", "github.com/hyperledger/fabric/common/tools/cryptogen")
 	})
 	return c.Paths["cryptogen"]
 }
@@ -62,7 +62,7 @@ func (c *Components) Idemixgen() string {
 
 func (c *Components) ConfigTxGen() string {
 	c.configOnce.Do(func() {
-		c.Paths["configtxgen"] = c.build("configtxgen", "github.com/hyperledger/fabric/cmd/configtxgen")
+		c.Paths["configtxgen"] = c.build("configtxgen", "github.com/hyperledger/fabric/common/tools/configtxgen")
 	})
 	return c.Paths["configtxgen"]
 }
@@ -76,7 +76,7 @@ func (c *Components) Orderer() string {
 
 func (c *Components) Peer() string {
 	c.peerOnce.Do(func() {
-		c.Paths["peer"] = c.build("peer", "github.com/hyperledger/fabric/cmd/peer")
+		c.Paths["peer"] = c.build("peer", "github.com/hyperledger/fabric/peer")
 	})
 	return c.Paths["peer"]
 }

@@ -20,6 +20,9 @@ Organizations:{{ range .PeerOrgs }}
     Writers:
       Type: Signature
       Rule: OR('{{.MSPID}}.admin', '{{.MSPID}}.client')
+    Endorsement:
+      Type: Signature
+      Rule: OR('{{.MSPID}}.peer')
     Admins:
       Type: Signature
       Rule: OR('{{.MSPID}}.admin')
@@ -68,14 +71,16 @@ Profiles:{{ range .Profiles }}
     {{- if .Orderers }}
     Orderer:
       OrdererType: {{ $w.Consensus.Type }}
+      Addresses:{{ range .Orderers }}{{ with $w.Orderer . }}
+      - 127.0.0.1:{{ $w.OrdererPort . "Listen" }}
+      {{- end }}{{ end }}
       BatchTimeout: 1s
       BatchSize:
         MaxMessageCount: 1
         AbsoluteMaxBytes: 98 MB
         PreferredMaxBytes: 512 KB
       Capabilities:
-        V1_1: true
-
+        V1_4_2: true
       {{- if eq $w.Consensus.Type "kafka" }}
       Kafka:
         Brokers:{{ range $w.BrokerAddresses "HostPort" }}
@@ -127,8 +132,12 @@ Profiles:{{ range .Profiles }}
     Consortium: {{ .Consortium }}
     Application:
       Capabilities:
+      {{- if .AppCapabilities }}{{ range .AppCapabilities }}
+        {{ . }}: true
+        {{- end }}
+      {{- else }}
         V1_3: true
-        CAPABILITY_PLACEHOLDER: false
+      {{- end }}
       Organizations:{{ range .Organizations }}
       - *{{ ($w.Organization .).MSPID }}
       {{- end}}

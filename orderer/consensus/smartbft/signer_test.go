@@ -16,7 +16,7 @@ import (
 	"github.com/hyperledger/fabric/orderer/consensus/smartbft"
 	"github.com/hyperledger/fabric/orderer/consensus/smartbft/mocks"
 	"github.com/hyperledger/fabric/protos/common"
-	"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -45,7 +45,9 @@ func TestSigner(t *testing.T) {
 func TestSignProposal(t *testing.T) {
 	ss := &mocks.SignerSerializer{}
 	ss.On("Sign", mock.Anything).Return([]byte{1, 2, 3}, nil).Once()
-	ss.On("Serialize", mock.Anything).Return([]byte{0, 2, 4, 6}, nil)
+	ss.On("NewSignatureHeader", mock.Anything).Return(&common.SignatureHeader{
+		Creator: []byte{0, 2, 4, 6},
+	}, nil)
 
 	s := &smartbft.Signer{
 		SignerSerializer: ss,
@@ -65,7 +67,7 @@ func TestSignProposal(t *testing.T) {
 		Ledger: ledger,
 	}
 
-	env := protoutil.MarshalOrPanic(&common.Envelope{Payload: []byte{1, 2, 3, 4, 5}})
+	env := utils.MarshalOrPanic(&common.Envelope{Payload: []byte{1, 2, 3, 4, 5}})
 	prop, _ := assembler.AssembleProposal(nil, [][]byte{env})
 
 	sig := s.SignProposal(prop)
@@ -80,7 +82,7 @@ func TestSignProposal(t *testing.T) {
 	sigHdr := &common.SignatureHeader{}
 	assert.NoError(t, proto.Unmarshal(signature.SignatureHeader, sigHdr))
 	assert.Equal(t, []byte{0, 2, 4, 6}, sigHdr.Creator)
-	assert.Equal(t, signature.OrdererBlockMetadata, protoutil.MarshalOrPanic(&common.OrdererBlockMetadata{
+	assert.Equal(t, signature.OrdererBlockMetadata, utils.MarshalOrPanic(&common.OrdererBlockMetadata{
 		LastConfig:        &common.LastConfig{Index: uint64(prop.VerificationSequence)},
 		ConsenterMetadata: prop.Metadata,
 	}))

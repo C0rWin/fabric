@@ -4,29 +4,22 @@
 ---
 organizations:
 - name: orderer-org
-  msp_id: OrdererOrgMSP
+  msp_id: OrdererOrgExampleCom
   domain: orderer.example.com
   enable_node_organizational_units: false
   users: 0
   ca:
     hostname: ca
 - name: org1
-  msp_id: Org1MSP
+  msp_id: Org1ExampleCom
   domain: org1.example.com
   enable_node_organizational_units: true
   users: 2
   ca:
     hostname: ca
 - name: org2
-  msp_id: Org2MSP
+  msp_id: Org2ExampleCom
   domain: org2.example.com
-  enable_node_organizational_units: true
-  users: 2
-  ca:
-    hostname: ca
-- name: org3
-  msp_id: Org3MSP
-  domain: org3.example.com
   enable_node_organizational_units: true
   users: 2
   ca:
@@ -37,52 +30,51 @@ consortiums:
   organizations:
   - org1
   - org2
-  - org3
 
 consensus:
   type: solo
 
 system_channel:
   name: systemchannel
-  profile: ThreeOrgsOrdererGenesis
+  profile: TwoOrgsOrdererGenesis
 
 orderers:
-- name: orderer
+- name: orderer0
   organization: orderer-org
 
 orderercapabilities:
   v20: false
-
+  
 channels:
 - name: testchannel
-  profile: ThreeOrgsChannel
+  profile: TwoOrgsChannel
 
 peers:
-- name: peer0
+- name: peer1
   organization: org1
   channels:
   - name: testchannel
     anchor: true
-- name: peer0
+- name: peer2
+  organization: org1
+  channels:
+  - name: testchannel
+- name: peer1
   organization: org2
   channels:
   - name: testchannel
-    anchor: true
-- name: peer1
+- name: peer2
   organization: org2
-- name: peer0
-  organization: org3
   channels:
   - name: testchannel
     anchor: true
 
 profiles:
-- name: ThreeOrgsOrdererGenesis
+- name: TwoOrgsOrdererGenesis
   orderers:
-  - orderer
-- name: ThreeOrgsChannel
+  - orderer0
+- name: TwoOrgsChannel
   consortium: SampleConsortium
   organizations:
   - org1
   - org2
-  - org3

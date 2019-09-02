@@ -11,7 +11,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/orderer"
-	"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric/protos/utils"
 )
 
 //go:generate mockery -dir . -name RPC -case underscore -output mocks
@@ -55,7 +55,7 @@ func (e *Egress) SendTransaction(targetID uint64, request []byte) {
 
 func bftMsgToClusterMsg(message *protos.Message, channel string) *orderer.ConsensusRequest {
 	return &orderer.ConsensusRequest{
-		Payload: protoutil.MarshalOrPanic(message),
+		Payload: utils.MarshalOrPanic(message),
 		Channel: channel,
 	}
 }

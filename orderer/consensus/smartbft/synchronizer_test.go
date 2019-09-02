@@ -17,7 +17,7 @@ import (
 	"github.com/hyperledger/fabric/orderer/consensus/smartbft"
 	"github.com/hyperledger/fabric/orderer/consensus/smartbft/mocks"
 	"github.com/hyperledger/fabric/protos/common"
-	"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -256,15 +256,15 @@ func TestSynchronizerSync(t *testing.T) {
 }
 
 func makeBlockWithMetadata(sqnNum, lastConfigIndex uint64, viewMetadata *smartbftprotos.ViewMetadata) *common.Block {
-	block := protoutil.NewBlock(sqnNum, nil)
-	block.Metadata.Metadata[common.BlockMetadataIndex_LAST_CONFIG] = protoutil.MarshalOrPanic(
+	block := common.NewBlock(sqnNum, nil)
+	block.Metadata.Metadata[common.BlockMetadataIndex_LAST_CONFIG] = utils.MarshalOrPanic(
 		&common.Metadata{
-			Value: protoutil.MarshalOrPanic(&common.LastConfig{Index: lastConfigIndex}),
+			Value: utils.MarshalOrPanic(&common.LastConfig{Index: lastConfigIndex}),
 		},
 	)
-	block.Metadata.Metadata[common.BlockMetadataIndex_SIGNATURES] = protoutil.MarshalOrPanic(&common.Metadata{
-		Value: protoutil.MarshalOrPanic(&common.OrdererBlockMetadata{
-			ConsenterMetadata: protoutil.MarshalOrPanic(viewMetadata),
+	block.Metadata.Metadata[common.BlockMetadataIndex_SIGNATURES] = utils.MarshalOrPanic(&common.Metadata{
+		Value: utils.MarshalOrPanic(&common.OrdererBlockMetadata{
+			ConsenterMetadata: utils.MarshalOrPanic(viewMetadata),
 			LastConfig: &common.LastConfig{
 				Index: sqnNum,
 			},
@@ -277,14 +277,14 @@ func makeConfigBlockWithMetadata(configBlock *common.Block, sqnNum uint64, viewM
 	block := proto.Clone(configBlock).(*common.Block)
 	block.Header.Number = sqnNum
 
-	block.Metadata.Metadata[common.BlockMetadataIndex_LAST_CONFIG] = protoutil.MarshalOrPanic(
+	block.Metadata.Metadata[common.BlockMetadataIndex_LAST_CONFIG] = utils.MarshalOrPanic(
 		&common.Metadata{
-			Value: protoutil.MarshalOrPanic(&common.LastConfig{Index: sqnNum}),
+			Value: utils.MarshalOrPanic(&common.LastConfig{Index: sqnNum}),
 		},
 	)
-	block.Metadata.Metadata[common.BlockMetadataIndex_SIGNATURES] = protoutil.MarshalOrPanic(&common.Metadata{
-		Value: protoutil.MarshalOrPanic(&common.OrdererBlockMetadata{
-			ConsenterMetadata: protoutil.MarshalOrPanic(viewMetadata),
+	block.Metadata.Metadata[common.BlockMetadataIndex_SIGNATURES] = utils.MarshalOrPanic(&common.Metadata{
+		Value: utils.MarshalOrPanic(&common.OrdererBlockMetadata{
+			ConsenterMetadata: utils.MarshalOrPanic(viewMetadata),
 			LastConfig: &common.LastConfig{
 				Index: sqnNum,
 			},

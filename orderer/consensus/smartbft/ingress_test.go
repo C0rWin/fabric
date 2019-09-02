@@ -16,7 +16,7 @@ import (
 	"github.com/hyperledger/fabric/orderer/consensus/smartbft/mocks"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/orderer"
-	"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -46,7 +46,7 @@ func TestDispatchConsensus(t *testing.T) {
 		// Good message
 		err := ingress.OnConsensus("mychannel", 1, &orderer.ConsensusRequest{
 			Channel: "mychannel",
-			Payload: protoutil.MarshalOrPanic(expectedRequest),
+			Payload: utils.MarshalOrPanic(expectedRequest),
 		})
 		assert.NoError(t, err)
 
@@ -88,7 +88,7 @@ func TestDispatchSubmit(t *testing.T) {
 
 	t.Run("Channel exists", func(t *testing.T) {
 		mr := &mocks.MessageReceiver{}
-		mr.On("HandleRequest", uint64(1), protoutil.MarshalOrPanic(expectedRequest.Payload)).Return(nil).Once()
+		mr.On("HandleRequest", uint64(1), utils.MarshalOrPanic(expectedRequest.Payload)).Return(nil).Once()
 
 		rg := &mocks.ReceiverGetter{}
 		rg.On("ReceiverByChain", "mychannel").Return(mr).Once()
@@ -98,7 +98,7 @@ func TestDispatchSubmit(t *testing.T) {
 		err := ingress.OnSubmit("mychannel", 1, expectedRequest)
 		assert.NoError(t, err)
 
-		mr.AssertCalled(t, "HandleRequest", uint64(1), protoutil.MarshalOrPanic(expectedRequest.Payload))
+		mr.AssertCalled(t, "HandleRequest", uint64(1), utils.MarshalOrPanic(expectedRequest.Payload))
 	})
 
 	t.Run("Channel does not exist", func(t *testing.T) {
