@@ -126,7 +126,7 @@ type request struct {
 
 func (ri *RequestInspector) requestIDFromSigHeader(sigHdr *common.SignatureHeader) (types.RequestInfo, error) {
 	sID := &msp.SerializedIdentity{}
-	if err := proto.Unmarshal(sigHdr.Creator, sigHdr); err != nil {
+	if err := proto.Unmarshal(sigHdr.Creator, sID); err != nil {
 		return types.RequestInfo{}, errors.Wrap(err, "identity isn't an MSP Identity")
 	}
 
