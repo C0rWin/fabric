@@ -197,11 +197,11 @@ func TestGoodWriteConfig(t *testing.T) {
 	fakeConfig.ConsensusTypeReturns("solo")
 	bw := newBlockWriter(genesisBlockSys, nil,
 		&mockBlockWriterSupport{
-			LocalSigner: mockCrypto(),
-			ReadWriter:  l,
-			Validator:   &mockconfigtx.Validator{ChainIDVal: genesisconfig.TestChainID},
-			fakeConfig:  fakeConfig,
-		},
+			SignerSerializer: mockCrypto(),
+			ReadWriter:       l,
+			Validator:        &mockconfigtx.Validator{ChainIDVal: genesisconfig.TestChainID},
+			fakeConfig:       fakeConfig,
+		}, false,
 	)
 
 	ctx := makeConfigTxFull(genesisconfig.TestChainID, 1)
@@ -232,11 +232,11 @@ func TestMigrationWriteConfig(t *testing.T) {
 	fakeConfig.ConsensusStateReturns(orderer.ConsensusType_STATE_MAINTENANCE)
 	bw := newBlockWriter(genesisBlockSys, nil,
 		&mockBlockWriterSupport{
-			LocalSigner: mockCrypto(),
-			ReadWriter:  l,
-			Validator:   &mockconfigtx.Validator{ChainIDVal: genesisconfig.TestChainID},
-			fakeConfig:  fakeConfig,
-		},
+			SignerSerializer: mockCrypto(),
+			ReadWriter:       l,
+			Validator:        &mockconfigtx.Validator{ChainIDVal: genesisconfig.TestChainID},
+			fakeConfig:       fakeConfig,
+		}, false,
 	)
 
 	ctx := makeConfigTxMig(genesisconfig.TestChainID, 1)
@@ -267,11 +267,11 @@ func TestRaceWriteConfig(t *testing.T) {
 	fakeConfig.ConsensusTypeReturns("solo")
 	bw := newBlockWriter(genesisBlockSys, nil,
 		&mockBlockWriterSupport{
-			LocalSigner: mockCrypto(),
-			ReadWriter:  l,
-			Validator:   &mockconfigtx.Validator{},
-			fakeConfig:  fakeConfig,
-		},
+			SignerSerializer: mockCrypto(),
+			ReadWriter:       l,
+			Validator:        &mockconfigtx.Validator{},
+			fakeConfig:       fakeConfig,
+		}, false,
 	)
 
 	ctx := makeConfigTxFull(genesisconfig.TestChainID, 1)

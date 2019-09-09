@@ -56,11 +56,17 @@ func newChainSupport(
 		),
 	}
 
+	var synchronousBlockWriting bool
+	oc, _ := ledgerResources.OrdererConfig()
+	if oc.ConsensusType() == "smartbft" {
+		synchronousBlockWriting = true
+	}
+
 	// Set up the msgprocessor
 	cs.Processor = msgprocessor.NewStandardChannel(cs, msgprocessor.CreateStandardChannelFilters(cs, registrar.config))
 
 	// Set up the block writer
-	cs.BlockWriter = newBlockWriter(lastBlock, registrar, cs)
+	cs.BlockWriter = newBlockWriter(lastBlock, registrar, cs, synchronousBlockWriting)
 
 	// Set up the consenter
 	consenterType := ledgerResources.SharedConfig().ConsensusType()
