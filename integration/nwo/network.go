@@ -1637,6 +1637,7 @@ const (
 	ProfilePort    PortName = "Profile"
 	OperationsPort PortName = "Operations"
 	ClusterPort    PortName = "Cluster"
+	AdminPort      PortName = "Admin"
 )
 
 // PeerPortNames returns the list of ports that need to be reserved for a Peer.
@@ -1647,7 +1648,7 @@ func PeerPortNames() []PortName {
 // OrdererPortNames  returns the list of ports that need to be reserved for an
 // Orderer.
 func OrdererPortNames() []PortName {
-	return []PortName{ListenPort, ProfilePort, OperationsPort, ClusterPort}
+	return []PortName{ListenPort, ProfilePort, OperationsPort, ClusterPort, AdminPort}
 }
 
 // BrokerPortNames returns the list of ports that need to be reserved for a
