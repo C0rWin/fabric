@@ -5,7 +5,11 @@
 
 package committee
 
-import "encoding/asn1"
+import (
+	"encoding/asn1"
+	"encoding/base64"
+	"fmt"
+)
 
 type PublicKey []byte
 
@@ -15,14 +19,15 @@ type PrivateKey []byte
 type Commitment struct {
 	Data  []byte // Data should be persisted for future initialization
 	Proof []byte // Proof denotes the proof the data was honestly computed
-	From  uint32 // From who this commitment was sent
+	From  int32 // From who this commitment was sent
 }
 
 // ReconShare represents a share for reconstructing the randomness of a node
 type ReconShare struct {
 	Data  []byte // Data should be persisted for future initialization
 	Proof []byte // Proof denotes the proof the data was honestly computed
-	About uint32 // About denotes whose randomness are we reconstructing
+	About int32 // About denotes whose randomness are we reconstructing
+	From  int32 // Who sent this ReconShare
 }
 
 // Config is the configuration of a committee
@@ -82,6 +87,15 @@ type Node struct {
 // Nodes is an aggregation of multiple nodes
 type Nodes []Node
 
+func (nodes Nodes) String() string {
+	var a []string
+	for _, n := range nodes {
+		a = append(a, fmt.Sprintf("%d: %s", n.ID, base64.StdEncoding.EncodeToString(n.PubKey)))
+	}
+
+	return fmt.Sprintf("%s", a)
+}
+
 // IDs returns the identifiers of all nodes
 func (nodes Nodes) IDs() []int32 {
 	var ids []int32
@@ -122,5 +136,5 @@ type Input struct {
 type Feedback struct {
 	Commitment    *Commitment  // Commitment to broadcast, if applicable
 	ReconShares   []ReconShare // ReconShares to broadcast, if applicable
-	NextCommittee []uint32     // The next committee, if applicable. It may be equal to the current committee
+	NextCommittee []int32     // The next committee, if applicable. It may be equal to the current committee
 }

@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	cs "github.com/SmartBFT-Go/randomcommittees"
+
 	"github.com/hyperledger/fabric/protos/orderer"
 
 	smartbft "github.com/SmartBFT-Go/consensus/pkg/consensus"
@@ -98,8 +100,6 @@ func NewChain(
 	metrics *Metrics,
 ) (*BFTChain, error) {
 
-	cs := committee.New()
-
 	requestInspector := &RequestInspector{
 		ValidateIdentityStructure: func(_ *msp.SerializedIdentity) error {
 			return nil
@@ -108,8 +108,10 @@ func NewChain(
 
 	logger := flogging.MustGetLogger("orderer.consensus.smartbft.chain").With(zap.String("channel", support.ChainID()))
 
+	committeeSelection := cs.NewCommitteeSelection(logger)
+
 	c := &BFTChain{
-		cs:               cs,
+		cs:               committeeSelection,
 		RuntimeConfig:    &atomic.Value{},
 		Channel:          support.ChainID(),
 		Config:           config,
@@ -299,20 +301,25 @@ func buildVerifier(
 
 func (c *BFTChain) HandleMessage(sender uint64, m *smartbftprotos.Message, metadata []byte) {
 	c.Logger.Debugf("Message from %d", sender)
-	if prp := m.GetPrePrepare(); prp != nil {
-		err := c.cs.VerifyCommitment(committee.Commitment{}, metadata) // TODO: actually extract the commitment from the pre-prepare
-		if err != nil {
-			c.Logger.Warningf("Failed verifying commitment of pre-prepare: %v", err)
-			return
+	/*
+		if prp := m.GetPrePrepare(); prp != nil {
+
+			err := c.cs.VerifyCommitment(committee.Commitment{}) // TODO: actually extract the commitment from the pre-prepare
+			if err != nil {
+				c.Logger.Warningf("Failed verifying commitment of pre-prepare: %v", err)
+				return
+			}
+
 		}
-	}
-	if cmt := m.GetCommit(); cmt != nil {
-		err := c.cs.VerifyReconShare(committee.ReconShare{}, nil) // TODO: actually extract the ReconShare and ZKP from the commitment
-		if err != nil {
-			c.Logger.Warningf("Failed verifying ReconShare of commit: %v", err)
-			return
+		if cmt := m.GetCommit(); cmt != nil {
+			err := c.cs.VerifyReconShare(committee.ReconShare{}) // TODO: actually extract the ReconShare and ZKP from the commitment
+			if err != nil {
+				c.Logger.Warningf("Failed verifying ReconShare of commit: %v", err)
+				return
+			}
 		}
-	}
+	*/
+
 	c.consensus.HandleMessage(sender, m)
 }
 
