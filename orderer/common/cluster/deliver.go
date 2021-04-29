@@ -175,7 +175,7 @@ func (p *BlockPuller) pullBlocks(seq uint64, reConnected bool) error {
 			return err
 		}
 
-		block, err := extractBlockFromResponse(resp)
+		block, err := ExtractBlockFromResponse(resp)
 		if err != nil {
 			p.Logger.Errorf("Received a bad block from %s: %v", p.endpoint, err)
 			return err
@@ -351,7 +351,7 @@ func (p *BlockPuller) fetchLastBlockSeq(minRequestedSequence uint64, endpoint st
 	if err != nil {
 		return 0, err
 	}
-	defer stream.abort()
+	defer stream.Abort()
 
 	resp, err := stream.Recv()
 	if err != nil {
@@ -359,7 +359,7 @@ func (p *BlockPuller) fetchLastBlockSeq(minRequestedSequence uint64, endpoint st
 		return 0, err
 	}
 
-	block, err := extractBlockFromResponse(resp)
+	block, err := ExtractBlockFromResponse(resp)
 	if err != nil {
 		p.Logger.Warningf("Received %v from %s: %v", resp, endpoint, err)
 		return 0, err
@@ -389,13 +389,13 @@ func (p *BlockPuller) requestBlocks(endpoint string, newStream ImpatientStreamCr
 
 	if err := stream.Send(env); err != nil {
 		p.Logger.Errorf("Failed sending seek envelope to %s: %v", endpoint, err)
-		stream.abort()
+		stream.Abort()
 		return nil, err
 	}
 	return stream, nil
 }
 
-func extractBlockFromResponse(resp *orderer.DeliverResponse) (*common.Block, error) {
+func ExtractBlockFromResponse(resp *orderer.DeliverResponse) (*common.Block, error) {
 	switch t := resp.Type.(type) {
 	case *orderer.DeliverResponse_Block:
 		block := t.Block
@@ -506,7 +506,7 @@ type ImpatientStream struct {
 	cancelFunc func()
 }
 
-func (stream *ImpatientStream) abort() {
+func (stream *ImpatientStream) Abort() {
 	stream.cancelFunc()
 }
 
