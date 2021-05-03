@@ -8,20 +8,19 @@ package smartbft
 
 import (
 	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"math"
+	"net"
 	"reflect"
 	"sync/atomic"
 	"time"
-
-	cs "github.com/SmartBFT-Go/randomcommittees"
-
-	"github.com/hyperledger/fabric/protos/orderer"
 
 	smartbft "github.com/SmartBFT-Go/consensus/pkg/consensus"
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	"github.com/SmartBFT-Go/consensus/pkg/wal"
 	"github.com/SmartBFT-Go/consensus/smartbftprotos"
+	cs "github.com/SmartBFT-Go/randomcommittees"
 	committee "github.com/SmartBFT-Go/randomcommittees/pkg"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/channelconfig"
@@ -31,8 +30,10 @@ import (
 	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/orderer/common/msgprocessor"
 	"github.com/hyperledger/fabric/orderer/consensus"
+	"github.com/hyperledger/fabric/orderer/consensus/etcdraft"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/msp"
+	"github.com/hyperledger/fabric/protos/orderer"
 	smartbft2 "github.com/hyperledger/fabric/protos/orderer/smartbft"
 	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/pkg/errors"
@@ -91,6 +92,7 @@ type BFTChain struct {
 	assembler           *Assembler
 	Metrics             *Metrics
 	heartbeatMonitor    *HeartbeatMonitor
+	streamPuller        *BlocksStreamPuller
 }
 
 // NewChain creates new BFT Smart chain
@@ -125,6 +127,21 @@ func NewChain(
 		return nil, errors.Wrap(err, "failed generating committee selection key pair")
 	}
 
+	lastBlock := LastBlockFromLedgerOrPanic(support, logger)
+	lastConfigBlock := LastConfigBlockFromLedgerOrPanic(support, logger)
+
+	stdDialer := &cluster.StandardDialer{
+		ClientConfig: pc.baseDialer.ClientConfig.Clone(),
+	}
+	stdDialer.ClientConfig.AsyncConnect = false
+	stdDialer.ClientConfig.SecOpts.VerifyCertificate = nil
+
+	der, _ := pem.Decode(stdDialer.ClientConfig.SecOpts.Certificate)
+	if der == nil {
+		return nil, errors.Errorf("client certificate isn't in PEM format: %v",
+			string(stdDialer.ClientConfig.SecOpts.Certificate))
+	}
+
 	commitZKP := &atomic.Value{}
 	commitZKP.Store([]byte{}) // Store an empty slice for type safety
 	c := &BFTChain{
@@ -152,10 +169,20 @@ func NewChain(
 			logger: logger,
 			ledger: &CachingLedger{Ledger: support},
 		},
+		streamPuller: &BlocksStreamPuller{
+			Ledger:        support,
+			Logger:        logger,
+			StreamCreator: NewImpatientStream,
+			Channel:       support.ChainID(),
+			RetryTimeout:  500 * time.Millisecond,
+			FetchTimeout:  time.Minute,
+			LastBlock:     lastBlock,
+			Signer:        support,
+			BlockVerifier: support,
+			TLSCert:       der.Bytes,
+			Dialer:        stdDialer,
+		},
 	}
-
-	lastBlock := LastBlockFromLedgerOrPanic(support, c.Logger)
-	lastConfigBlock := LastConfigBlockFromLedgerOrPanic(support, c.Logger)
 
 	currentCommittee := c.ct.CurrentCommittee()
 
@@ -167,6 +194,94 @@ func NewChain(
 				logger.Panicf("Failed initializing committee selection library: %v", err)
 			}
 			c.migrateTransactions(prevCommittee, currentCommittee.IDs())
+			committeeIdentifiers := currentCommittee.IDs()
+
+			logger.Debugf("Current committee: %v", committeeIdentifiers)
+
+			committeeIDs := make(map[uint64]struct{})
+			for _, id := range committeeIdentifiers {
+				committeeIDs[uint64(id)] = struct{}{}
+			}
+
+			prevCommitteeIDs := make(map[uint64]struct{})
+			for _, id := range prevCommittee {
+				prevCommitteeIDs[uint64(id)] = struct{}{}
+			}
+
+			// stop puller at any case, cause if we in the committee there is no need
+			// to pull blocks, otherwise anyway need to update new points and reconnect.
+			c.streamPuller.Stop()
+			_, wasInCommittee := prevCommitteeIDs[selfID]
+			if wasInCommittee {
+				c.consensus.Stop()
+			}
+
+			_, inCommittee := committeeIDs[selfID]
+			if inCommittee {
+				rtc := c.RuntimeConfig.Load().(RuntimeConfig)
+				latestMetadata, err := getViewMetadataFromBlock(rtc.LastBlock)
+				if err != nil {
+					c.Logger.Panicf("Failed extracting view metadata from ledger: %v", err)
+				}
+
+				c.consensus.Metadata = latestMetadata
+				proposal, signatures := c.lastPersistedProposalAndSignatures()
+				if proposal != nil {
+					c.consensus.LastProposal = *proposal
+					c.consensus.LastSignatures = signatures
+				}
+				logger.Debugf("node is selected to be in current committee, committee members are %s", committeeIDs)
+				if err := c.consensus.Start(); err != nil {
+					logger.Panic(err.Error())
+				}
+				return
+			}
+			logger.Debugf("node wasn't selected to be in current committee, committee members are %s", committeeIDs)
+
+			consensusMD := &smartbft2.ConfigMetadata{}
+			if err := proto.Unmarshal(support.SharedConfig().ConsensusMetadata(), consensusMD); err != nil {
+				logger.Panicf(fmt.Sprintf("cannot unmarshal consensus metadata %s", err.Error()))
+			}
+
+			endpointsInCommittee := make(map[string]struct{})
+			for _, consenter := range consensusMD.Consenters {
+				if _, exists := committeeIDs[consenter.ConsenterId]; !exists {
+					logger.Debugf("%d %s is not in the committee", consenter.ConsenterId, consenter.Host)
+					continue
+				}
+				endpointsInCommittee[consenter.Host] = struct{}{}
+			}
+
+			// Extract the TLS CA certs and endpoints from the configuration,
+			endpoints, err := etcdraft.EndpointconfigFromFromSupport(support)
+			if err != nil {
+				logger.Panicf(fmt.Sprintf("cannot extract TLS CA certs and endpoint %s", err.Error()))
+			}
+
+			logger.Debugf("Endpoints in committee: %v", endpointsInCommittee)
+			if len(endpointsInCommittee) > 0 {
+				var filteredEndpoints []cluster.EndpointCriteria
+				var filteredEndpointsURIs []string
+				for _, ep := range endpoints {
+					host, _, err := net.SplitHostPort(ep.Endpoint)
+					if err != nil {
+						logger.Warnf("Invalid host port string %s: %v", ep.Endpoint, err)
+						continue
+					}
+					if _, exists := endpointsInCommittee[host]; !exists {
+						continue
+					}
+					filteredEndpoints = append(filteredEndpoints, ep)
+					filteredEndpointsURIs = append(filteredEndpointsURIs, ep.Endpoint)
+				}
+				endpoints = filteredEndpoints
+				logger.Debugf("Filtering out endpoints of nodes not in the committee, remaining endpoints: %v", filteredEndpointsURIs)
+			} else {
+				logger.Debugf("Endpoints and consenter endpoints are disjoint, using the endpoints without filtering by committee")
+			}
+
+			c.streamPuller.Initialize(endpoints)
+			go c.streamPuller.ContinuouslyPullBlocks()
 		},
 		logger: logger,
 		id:     selfID,
