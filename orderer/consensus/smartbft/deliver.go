@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"math"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -21,9 +22,8 @@ import (
 
 // BlocksStreamPuller fetches stream of blocks from active committee members
 type BlocksStreamPuller struct {
-	MaxPullBlockRetries uint64
-	RetryTimeout        time.Duration
-	FetchTimeout        time.Duration
+	RetryTimeout time.Duration
+	FetchTimeout time.Duration
 
 	Endpoints []cluster.EndpointCriteria
 	LastBlock *common.Block
@@ -38,6 +38,8 @@ type BlocksStreamPuller struct {
 	Ledger        LedgerWriter
 	StreamCreator StreamCreator
 
+	endpointsLock        sync.RWMutex
+	connectionLock       sync.RWMutex
 	deliverEndpointIdx   int
 	blockDeliverEndpoint cluster.EndpointCriteria
 	conn                 *grpc.ClientConn
@@ -74,17 +76,11 @@ func NewImpatientStream(conn *grpc.ClientConn, timeout time.Duration) (Impatient
 	return streamCreator()
 }
 
-func (p *BlocksStreamPuller) ContinuouslyPullBlocks() error {
-	retriesCnt := p.MaxPullBlockRetries
+func (p *BlocksStreamPuller) ContinuouslyPullBlocks() {
 	for !p.isdone() {
 		block, err := p.tryFetchBlocks()
 		if err != nil {
-			if retriesCnt == 0 {
-				p.Logger.Errorf("Failed pulling next block: retry count exhausted(%d), reason %s", p.MaxPullBlockRetries, err)
-				return err
-			}
-			retriesCnt--
-			p.Logger.Errorf("Failed to pull next block: retries left (%d), reason %s", retriesCnt, err)
+			p.Logger.Errorf("Failed to pull next block, reason %s", err)
 			time.Sleep(p.RetryTimeout)
 			p.disconnect()
 			continue
@@ -92,12 +88,10 @@ func (p *BlocksStreamPuller) ContinuouslyPullBlocks() error {
 
 		p.Logger.Debugf("Appending block (%d) to the ledger", block.Header.Number)
 		if err := p.Ledger.Append(block); err != nil {
-			p.Logger.Errorf("not able to append newly received block into the ledger, block number [%d], due to %s", block.Header.Number, err)
-			return err
+			p.Logger.Panicf("not able to append newly received block into the ledger, block number [%d], due to %s", block.Header.Number, err)
 		}
 		p.LastBlock = block
 	}
-	return nil
 }
 
 // Stop halts blocks stream puller from fetching blocks
@@ -106,8 +100,19 @@ func (p *BlocksStreamPuller) Stop() {
 	p.disconnect()
 }
 
+func (p *BlocksStreamPuller) Initialize(endpoints []cluster.EndpointCriteria) {
+	p.endpointsLock.Lock()
+	defer p.endpointsLock.Unlock()
+	p.Endpoints = endpoints
+	if !p.disconnected() {
+		p.Stop()
+	}
+}
+
 // assignEndpoints assigns endpoints to decide where to fetch blocks from
 func (p *BlocksStreamPuller) assignEndpoints() {
+	p.endpointsLock.RLock()
+	defer p.endpointsLock.RUnlock()
 	p.deliverEndpointIdx = (p.deliverEndpointIdx + 1) % len(p.Endpoints)
 	p.blockDeliverEndpoint = p.Endpoints[p.deliverEndpointIdx]
 }
@@ -161,6 +166,8 @@ func (p *BlocksStreamPuller) isdone() bool {
 // disconnect makes the BlockPuller close the connection and stream
 // with the remote endpoint, and wipe the internal block buffer.
 func (p *BlocksStreamPuller) disconnect() {
+	p.connectionLock.RLock()
+	defer p.connectionLock.RUnlock()
 	if p.stream != nil {
 		p.stream.Abort()
 	}
@@ -232,6 +239,8 @@ func (p *BlocksStreamPuller) requestBlocks() error {
 
 func (p *BlocksStreamPuller) connectToNextEndpoint() error {
 	var err error
+	p.connectionLock.Lock()
+	defer p.connectionLock.Unlock()
 	p.conn, err = p.Dialer.Dial(p.blockDeliverEndpoint)
 	if err != nil {
 		p.Logger.Warningf("Failed connecting to %s: %v", p.blockDeliverEndpoint, err)
@@ -242,5 +251,8 @@ func (p *BlocksStreamPuller) connectToNextEndpoint() error {
 
 // disconnected check whenever puller got already connected
 func (p *BlocksStreamPuller) disconnected() bool {
+	p.connectionLock.RLock()
+	defer p.connectionLock.RUnlock()
+
 	return p.conn == nil
 }

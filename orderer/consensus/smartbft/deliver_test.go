@@ -1,4 +1,4 @@
-package smartbft
+package smartbft_test
 
 import (
 	"context"
@@ -9,19 +9,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hyperledger/fabric/common/util"
+	"github.com/hyperledger/fabric/orderer/consensus/smartbft"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric/protos/utils"
-
-	"github.com/hyperledger/fabric/common/mocks/crypto"
-
 	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric/common/mocks/crypto"
+	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/core/comm"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/orderer/consensus/smartbft/mocks"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/orderer"
+	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"google.golang.org/grpc"
@@ -121,19 +120,18 @@ func TestBlocksStreamPuller_ContinuouslyPullBlocks(t *testing.T) {
 	_, port, err := net.SplitHostPort(lis.Addr().String())
 	assert.NoError(t, err)
 
-	puller := &BlocksStreamPuller{
-		RetryTimeout:        time.Millisecond,
-		FetchTimeout:        5 * time.Second,
-		MaxPullBlockRetries: 3,
-		Ledger:              ledger,
-		Dialer:              &testDialer{},
-		BlockVerifier:       blockVerifier,
-		Signer:              signer,
-		StreamCreator:       NewImpatientStream,
-		LastBlock:           lastBlock,
-		Logger:              flogging.MustGetLogger("test"),
-		Channel:             channelID,
-		TLSCert:             tlsCert,
+	puller := &smartbft.BlocksStreamPuller{
+		RetryTimeout:  time.Millisecond,
+		FetchTimeout:  5 * time.Second,
+		Ledger:        ledger,
+		Dialer:        &testDialer{},
+		BlockVerifier: blockVerifier,
+		Signer:        signer,
+		StreamCreator: smartbft.NewImpatientStream,
+		LastBlock:     lastBlock,
+		Logger:        flogging.MustGetLogger("test"),
+		Channel:       channelID,
+		TLSCert:       tlsCert,
 		Endpoints: []cluster.EndpointCriteria{
 			{
 				Endpoint:   fmt.Sprintf("127.0.0.1:%s", port),
