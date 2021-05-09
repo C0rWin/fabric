@@ -431,9 +431,9 @@ func bftSmartConsensusBuild(
 			}
 			return msg
 		},
-		RuntimeConfig: c.RuntimeConfig,
-		Channel:       c.support.ChainID(),
-		Logger:        flogging.MustGetLogger("orderer.consensus.smartbft.egress").With(channelDecorator),
+		CommitteeTracker: c.ct,
+		Channel:          c.support.ChainID(),
+		Logger:           flogging.MustGetLogger("orderer.consensus.smartbft.egress").With(channelDecorator),
 		RPC: &cluster.RPC{
 			Logger:        flogging.MustGetLogger("orderer.consensus.smartbft.rpc").With(channelDecorator),
 			Channel:       c.support.ChainID(),

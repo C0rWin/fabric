@@ -166,8 +166,8 @@ func (p *BlocksStreamPuller) isdone() bool {
 // disconnect makes the BlockPuller close the connection and stream
 // with the remote endpoint, and wipe the internal block buffer.
 func (p *BlocksStreamPuller) disconnect() {
-	p.connectionLock.RLock()
-	defer p.connectionLock.RUnlock()
+	p.connectionLock.Lock()
+	defer p.connectionLock.Unlock()
 	if p.stream != nil {
 		p.stream.Abort()
 	}

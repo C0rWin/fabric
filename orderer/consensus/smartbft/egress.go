@@ -7,8 +7,6 @@ SPDX-License-Identifier: Apache-2.0
 package smartbft
 
 import (
-	"sync/atomic"
-
 	protos "github.com/SmartBFT-Go/consensus/smartbftprotos"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/protos/common"
@@ -30,18 +28,18 @@ type Logger interface {
 }
 
 type Egress struct {
-	ConvertMessage func(m *protos.Message, channel string) *orderer.ConsensusRequest
-	Channel        string
-	RPC            RPC
-	Logger         Logger
-	RuntimeConfig  *atomic.Value
+	ConvertMessage   func(m *protos.Message, channel string) *orderer.ConsensusRequest
+	Channel          string
+	RPC              RPC
+	Logger           Logger
+	CommitteeTracker *CommitteeTracker
 }
 
 func (e *Egress) Nodes() []uint64 {
-	nodes := e.RuntimeConfig.Load().(RuntimeConfig).Nodes
+	nodes := e.CommitteeTracker.CurrentCommittee()
 	var res []uint64
 	for _, n := range nodes {
-		res = append(res, n)
+		res = append(res, uint64(n.ID))
 	}
 	return res
 }
