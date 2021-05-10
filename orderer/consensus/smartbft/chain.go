@@ -176,7 +176,7 @@ func NewChain(
 		},
 		streamPuller: &BlocksStreamPuller{
 			Ledger:        support,
-			Logger:        logger,
+			Logger:        flogging.MustGetLogger("orderer.consensus.smartbft.chain.puller").With(zap.String("channel", support.ChainID())),
 			StreamCreator: NewImpatientStream,
 			Channel:       support.ChainID(),
 			RetryTimeout:  500 * time.Millisecond,
@@ -198,6 +198,10 @@ func NewChain(
 
 	rtc := RuntimeConfig{
 		OnCommitteeChange: func(prevCommittee []int32, allNodes []uint64) {
+			if c.consensus == nil {
+				c.Logger.Warn("initializing the chain, consensus instance is not ready yet, not need for committee change at that time")
+				return
+			}
 			currentCommittee := c.ct.CurrentCommittee()
 			err = committeeSelection.Initialize(int32(selfID), privateKey, currentCommittee)
 			if err != nil {
@@ -229,18 +233,17 @@ func NewChain(
 			// to pull blocks, otherwise anyway need to update new points and reconnect.
 			c.streamPuller.Stop()
 			_, wasInCommittee := prevCommitteeIDs[selfID]
-			if wasInCommittee {
-				c.consensus.Stop()
-			}
-
 			_, inCommittee := committeeIDs[selfID]
-			if inCommittee {
-				rtc := c.RuntimeConfig.Load().(RuntimeConfig)
-				latestMetadata, err := getViewMetadataFromBlock(rtc.LastBlock)
+			if inCommittee && !wasInCommittee {
+				lastBlock := LastBlockFromLedgerOrPanic(support, logger)
+				latestMetadata, err := getViewMetadataFromBlock(lastBlock)
 				if err != nil {
 					c.Logger.Panicf("Failed extracting view metadata from ledger: %v", err)
 				}
 
+				if c.consensus == nil {
+					c.Logger.Panicf("onCommitteeChange triggered while consensus is not initialized")
+				}
 				c.consensus.Metadata = latestMetadata
 				proposal, signatures := c.lastPersistedProposalAndSignatures()
 				if proposal != nil {
@@ -253,6 +256,10 @@ func NewChain(
 				}
 				return
 			}
+			if !inCommittee && wasInCommittee {
+				c.consensus.Stop()
+			}
+
 			logger.Debugf("node wasn't selected to be in current committee, committee members are %s", committeeIDs)
 
 			consensusMD := &smartbft2.ConfigMetadata{}

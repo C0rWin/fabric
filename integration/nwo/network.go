@@ -758,6 +758,7 @@ func (n *Network) Cleanup() {
 			}
 		}
 	}
+	n.DockerClient.PruneNetworks(docker.PruneNetworksOptions{})
 }
 
 // CreateAndJoinChannels will create all channels specified in the config that

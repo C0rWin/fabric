@@ -550,6 +550,14 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			ordererProcesses[2].Signal(syscall.SIGTERM)
 			Eventually(ordererProcesses[2].Wait(), network.EventuallyTimeout).Should(Receive())
 
+			time.Sleep(time.Second * 5)
+
+			invokeQuery(network, peer, orderer, channel, 70)
+			invokeQuery(network, peer, orderer, channel, 60)
+			invokeQuery(network, peer, orderer, channel, 50)
+			invokeQuery(network, peer, orderer, channel, 40)
+			invokeQuery(network, peer, orderer, channel, 30)
+
 			By("Waiting for view change to occur")
 			Eventually(ordererRunners[0].Err(), network.EventuallyTimeout*2, time.Second).Should(gbytes.Say("Changing to follower role, current view: 1, current leader: 2 channel=systemchannel"))
 			Eventually(ordererRunners[1].Err(), network.EventuallyTimeout*2, time.Second).Should(gbytes.Say("Changing to leader role, current view: 1, current leader: 2 channel=systemchannel"))
@@ -576,18 +584,18 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			}, network.Orderers, peer, network)
 
 			By("Transacting on testchannel1 a few times")
-			invokeQuery(network, peer, network.Orderers[4], channel, 70)
-			invokeQuery(network, peer, network.Orderers[4], channel, 60)
+			invokeQuery(network, peer, network.Orderers[4], channel, 20)
+			invokeQuery(network, peer, network.Orderers[4], channel, 10)
 			By("Making sure the previous leader synchronizes")
 			Eventually(ordererRunners[2].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Synchronized to view 0 and sequence 6 with verification sequence 2 channel=testchannel1"))
 			Eventually(ordererRunners[2].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Starting view with number 0, sequence 7, and decisions 6 channel=testchannel1"))
 			By("Invoking again")
-			invokeQuery(network, peer, network.Orderers[4], channel, 50)
+			invokeQuery(network, peer, network.Orderers[4], channel, 0)
 			By("Ensure all nodes are in sync")
 			assertBlockReception(map[string]int{"testchannel1": 7}, network.Orderers, peer, network)
 
 			time.Sleep(time.Second * 5)
-			invokeQuery(network, peer, network.Orderers[4], channel, 40)
+			invokeQuery(network, peer, network.Orderers[4], channel, -10)
 
 			By("Ensuring added node participates in consensus")
 			Eventually(ordererRunners[2].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Deciding on seq 8"))
@@ -623,7 +631,7 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			waitForBlockReceptionByPeer(peer, network, "testchannel1", 9)
 
 			By("Transact again")
-			invokeQuery(network, peer, network.Orderers[2], channel, 30)
+			invokeQuery(network, peer, network.Orderers[2], channel, -20)
 
 			By("Ensuring the existing nodes got the block")
 			assertBlockReception(map[string]int{
@@ -657,14 +665,14 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			}, network.Orderers, peer, network)
 
 			By("Transact again")
-			invokeQuery(network, peer, network.Orderers[2], channel, 20)
+			invokeQuery(network, peer, network.Orderers[2], channel, -30)
 
 			assertBlockReception(map[string]int{
 				"testchannel1": 12,
 			}, network.Orderers, peer, network)
 
 			By("Transact last time")
-			invokeQuery(network, peer, network.Orderers[2], channel, 10)
+			invokeQuery(network, peer, network.Orderers[2], channel, -40)
 
 			assertBlockReception(map[string]int{
 				"testchannel1": 13,
@@ -674,7 +682,7 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			Eventually(ordererRunners[4].Err(), network.EventuallyTimeout, time.Second).Should(gbytes.Say("Deciding on seq 13 channel=testchannel1"))
 		})
 
-		It("smartbft iterated addition and iterated removal", func() {
+		PIt("smartbft iterated addition and iterated removal", func() {
 			network = nwo.New(nwo.MultiNodeSmartBFT(), testDir, client, StartPort(), components)
 			network.BoostrapDockerNetwork()
 			network.GenerateAndBoostrapCrypto()
@@ -918,7 +926,7 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 
 		})
 
-		It("smartbft reconfiguration prevents blacklisting", func() {
+		PIt("smartbft reconfiguration prevents blacklisting", func() {
 			network = nwo.New(nwo.MultiNodeSmartBFT(), testDir, client, StartPort(), components)
 			network.BoostrapDockerNetwork()
 			network.GenerateAndBoostrapCrypto()
