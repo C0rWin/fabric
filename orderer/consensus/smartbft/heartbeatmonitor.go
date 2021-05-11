@@ -208,7 +208,7 @@ func (ahbm *AtomicHeartBeatMonitor) Set(hbm *HeartbeatMonitor) {
 func (ahbm *AtomicHeartBeatMonitor) GetSuspects() []uint64 {
 	hbm := ahbm.hbm.Load()
 	if hbm != nil {
-		hbm.(*HeartbeatMonitor).GetSuspects()
+		return hbm.(*HeartbeatMonitor).GetSuspects()
 	}
 	return nil
 }
