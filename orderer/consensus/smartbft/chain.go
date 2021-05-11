@@ -220,7 +220,9 @@ func NewChain(
 				logger.Panicf("Failed initializing committee selection library: %v", err)
 			}
 
-			c.migrateTransactions(prevCommittee, currentCommittee.IDs())
+			requests, _ := c.consensus.Pool.NextRequests(math.MaxInt32, math.MaxUint64, false)
+			c.migrateTransactions(prevCommittee, currentCommittee.IDs(), requests)
+
 			if c.heartbeatMonitor != nil {
 				myRole, heartbeatSenders, heartbeatReceivers := setupHeartbeatMonitor(selfID, currentCommittee, allNodes)
 				hbm := NewHeartbeatMonitor(c.consensus.Comm.(MessageSender), heartbeatTicker.C, logger, heartbeatTimeout, heartbeatCount, myRole, heartbeatSenders, heartbeatReceivers)
@@ -237,14 +239,14 @@ func NewChain(
 			for _, id := range prevCommittee {
 				prevCommitteeIDs[uint64(id)] = struct{}{}
 			}
+
 			c.streamPuller.Stop()
-			_, wasInCommittee := prevCommitteeIDs[selfID]
+			logger.Debugf("Stopping consensus before restarting to update references")
+			c.consensus.Stop()
+
+			//_, wasInCommittee := prevCommitteeIDs[selfID]
 			_, inCommittee := committeeIDs[selfID]
-			if inCommittee && wasInCommittee {
-				logger.Debugf("node is remained in the committee, nothing to be done, current committee is [%v]", committeeIdentifiers)
-				return
-			}
-			if inCommittee && !wasInCommittee {
+			if inCommittee {
 				logger.Debugf("node is selected to be in current committee, committee members are %s", committeeIDs)
 				lastBlock := LastBlockFromLedgerOrPanic(support, logger)
 				latestMetadata, err := getViewMetadataFromBlock(lastBlock)
@@ -258,14 +260,20 @@ func NewChain(
 					c.consensus.LastProposal = *proposal
 					c.consensus.LastSignatures = signatures
 				}
+
+				logger.Debugf("Restarting consensus instance")
 				if err := c.consensus.Start(); err != nil {
 					logger.Panic(err.Error())
 				}
+				for _, req := range requests {
+					requestID := c.consensus.RequestInspector.RequestID(req)
+					logger.Debugf("resubmitting requests after restart %s", requestID)
+					err := c.consensus.SubmitRequest(req)
+					if err != nil {
+						logger.Panicf("failed to re-submit request after consensus re-start. error %s", err)
+					}
+				}
 				return
-			}
-			if !inCommittee && wasInCommittee {
-				c.Logger.Debugf("stopping consensus instance because no longer in the committee, current committee [%v]", committeeIdentifiers)
-				c.consensus.Stop()
 			}
 			logger.Debugf("node wasn't selected to be in current committee, committee members are %v", committeeIDs)
 			consensusMD := &smartbft2.ConfigMetadata{}
@@ -597,7 +605,7 @@ func (c *BFTChain) verifyCommitment(block *common.Block) error {
 	return nil
 }
 
-func (c *BFTChain) migrateTransactions(prevCommittee, nextCommittee []int32) {
+func (c *BFTChain) migrateTransactions(prevCommittee, nextCommittee []int32, requests [][]byte) {
 	prev := make(map[int32]struct{})
 	for _, id := range prevCommittee {
 		prev[id] = struct{}{}
@@ -622,8 +630,6 @@ func (c *BFTChain) migrateTransactions(prevCommittee, nextCommittee []int32) {
 	}
 
 	c.Logger.Infof("Migrating transactions from %v to %v", prevCommittee, nextCommittee)
-
-	requests, _ := c.consensus.Pool.NextRequests(math.MaxInt32, math.MaxUint64, false)
 
 	c.Logger.Infof("Sending %d transactions to %v", len(requests), newNodes)
 	for _, id := range newNodes {

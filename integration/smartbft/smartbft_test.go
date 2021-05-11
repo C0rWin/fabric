@@ -547,17 +547,18 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 			waitForBlockReceptionByPeer(peer, network, "testchannel1", 4)
 
 			By("Killing the leader orderer")
-			//ordererProcesses[2].Signal(syscall.SIGTERM)
-			//Eventually(ordererProcesses[2].Wait(), network.EventuallyTimeout).Should(Receive())
+			ordererProcesses[2].Signal(syscall.SIGTERM)
+			Eventually(ordererProcesses[2].Wait(), network.EventuallyTimeout).Should(Receive())
+			/*
+				time.Sleep(time.Second * 5)
+				network.EventuallyTimeout = time.Minute
+				invokeQuery(network, peer, network.Orderers[0], channel, 70)
+				invokeQuery(network, peer, network.Orderers[0], channel, 60)
+				invokeQuery(network, peer, network.Orderers[0], channel, 50)
+				invokeQuery(network, peer, network.Orderers[0], channel, 40)
+				invokeQuery(network, peer, network.Orderers[0], channel, 30)
 
-			time.Sleep(time.Second * 5)
-			network.EventuallyTimeout = time.Minute
-			invokeQuery(network, peer, network.Orderers[4], channel, 70)
-			invokeQuery(network, peer, network.Orderers[4], channel, 60)
-			invokeQuery(network, peer, network.Orderers[4], channel, 50)
-			invokeQuery(network, peer, network.Orderers[4], channel, 40)
-			invokeQuery(network, peer, network.Orderers[4], channel, 30)
-
+			*/
 			By("Waiting for view change to occur")
 			Eventually(ordererRunners[0].Err(), network.EventuallyTimeout*2, time.Second).Should(gbytes.Say("Changing to follower role, current view: 1, current leader: 2 channel=systemchannel"))
 			Eventually(ordererRunners[1].Err(), network.EventuallyTimeout*2, time.Second).Should(gbytes.Say("Changing to leader role, current view: 1, current leader: 2 channel=systemchannel"))
