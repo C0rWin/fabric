@@ -197,18 +197,30 @@ func NewChain(
 	currentCommittee := c.ct.CurrentCommittee()
 
 	rtc := RuntimeConfig{
+		BFTConfig:              config,
+		isConfig:               false,
+		logger:                 logger,
+		id:                     selfID,
+		LastCommittedBlockHash: "",
+		RemoteNodes:            []cluster.RemoteNode{},
+		ID2Identities:          map[uint64][]byte{},
+		LastBlock:              lastBlock,
+		LastConfigBlock:        lastConfigBlock,
+		Nodes:                  []uint64{},
+		CommitteeMetadata:      &CommitteeMetadata{},
 		OnCommitteeChange: func(prevCommittee []int32, allNodes []uint64) {
+			currentCommittee := c.ct.CurrentCommittee()
+			c.Logger.Debugf("changing committee from [%v], to [%v]", prevCommittee, currentCommittee.IDs())
 			if c.consensus == nil {
 				c.Logger.Warn("initializing the chain, consensus instance is not ready yet, not need for committee change at that time")
 				return
 			}
-			currentCommittee := c.ct.CurrentCommittee()
-			err = committeeSelection.Initialize(int32(selfID), privateKey, currentCommittee)
+			err = committeeSelection.Initialize(int32(selfID), c.committeePrivateKey, c.ct.CurrentCommittee())
 			if err != nil {
 				logger.Panicf("Failed initializing committee selection library: %v", err)
 			}
-			c.migrateTransactions(prevCommittee, currentCommittee.IDs())
 
+			c.migrateTransactions(prevCommittee, currentCommittee.IDs())
 			if c.heartbeatMonitor != nil {
 				myRole, heartbeatSenders, heartbeatReceivers := setupHeartbeatMonitor(selfID, currentCommittee, allNodes)
 				hbm := NewHeartbeatMonitor(c.consensus.Comm.(MessageSender), heartbeatTicker.C, logger, heartbeatTimeout, heartbeatCount, myRole, heartbeatSenders, heartbeatReceivers)
@@ -216,57 +228,50 @@ func NewChain(
 				hbm.Start()
 			}
 			committeeIdentifiers := currentCommittee.IDs()
-
 			logger.Debugf("Current committee: %v", committeeIdentifiers)
-
 			committeeIDs := make(map[uint64]struct{})
 			for _, id := range committeeIdentifiers {
 				committeeIDs[uint64(id)] = struct{}{}
 			}
-
 			prevCommitteeIDs := make(map[uint64]struct{})
 			for _, id := range prevCommittee {
 				prevCommitteeIDs[uint64(id)] = struct{}{}
 			}
-
-			// stop puller at any case, cause if we in the committee there is no need
-			// to pull blocks, otherwise anyway need to update new points and reconnect.
 			c.streamPuller.Stop()
 			_, wasInCommittee := prevCommitteeIDs[selfID]
 			_, inCommittee := committeeIDs[selfID]
+			if inCommittee && wasInCommittee {
+				logger.Debugf("node is remained in the committee, nothing to be done, current committee is [%v]", committeeIdentifiers)
+				return
+			}
 			if inCommittee && !wasInCommittee {
+				logger.Debugf("node is selected to be in current committee, committee members are %s", committeeIDs)
 				lastBlock := LastBlockFromLedgerOrPanic(support, logger)
 				latestMetadata, err := getViewMetadataFromBlock(lastBlock)
 				if err != nil {
 					c.Logger.Panicf("Failed extracting view metadata from ledger: %v", err)
 				}
-
-				if c.consensus == nil {
-					c.Logger.Panicf("onCommitteeChange triggered while consensus is not initialized")
-				}
+				logger.Debug("updating consensus metadata, last proposal and signatures")
 				c.consensus.Metadata = latestMetadata
 				proposal, signatures := c.lastPersistedProposalAndSignatures()
 				if proposal != nil {
 					c.consensus.LastProposal = *proposal
 					c.consensus.LastSignatures = signatures
 				}
-				logger.Debugf("node is selected to be in current committee, committee members are %s", committeeIDs)
 				if err := c.consensus.Start(); err != nil {
 					logger.Panic(err.Error())
 				}
 				return
 			}
 			if !inCommittee && wasInCommittee {
+				c.Logger.Debugf("stopping consensus instance because no longer in the committee, current committee [%v]", committeeIdentifiers)
 				c.consensus.Stop()
 			}
-
-			logger.Debugf("node wasn't selected to be in current committee, committee members are %s", committeeIDs)
-
+			logger.Debugf("node wasn't selected to be in current committee, committee members are %v", committeeIDs)
 			consensusMD := &smartbft2.ConfigMetadata{}
 			if err := proto.Unmarshal(support.SharedConfig().ConsensusMetadata(), consensusMD); err != nil {
 				logger.Panicf(fmt.Sprintf("cannot unmarshal consensus metadata %s", err.Error()))
 			}
-
 			endpointsInCommittee := make(map[string]struct{})
 			for _, consenter := range consensusMD.Consenters {
 				if _, exists := committeeIDs[consenter.ConsenterId]; !exists {
@@ -275,13 +280,10 @@ func NewChain(
 				}
 				endpointsInCommittee[consenter.Host] = struct{}{}
 			}
-
-			// Extract the TLS CA certs and endpoints from the configuration,
 			endpoints, err := etcdraft.EndpointconfigFromFromSupport(support)
 			if err != nil {
 				logger.Panicf(fmt.Sprintf("cannot extract TLS CA certs and endpoint %s", err.Error()))
 			}
-
 			logger.Debugf("Endpoints in committee: %v", endpointsInCommittee)
 			if len(endpointsInCommittee) > 0 {
 				var filteredEndpoints []cluster.EndpointCriteria
@@ -303,12 +305,11 @@ func NewChain(
 			} else {
 				logger.Debugf("Endpoints and consenter endpoints are disjoint, using the endpoints without filtering by committee")
 			}
-
 			c.streamPuller.Initialize(endpoints)
 			go c.streamPuller.ContinuouslyPullBlocks()
 		},
-		logger: logger,
-		id:     selfID,
+		committeeMinimumLifespan: 0,
+		changesCommittee:         false,
 	}
 	rtc, err = rtc.BlockCommitted(lastConfigBlock)
 	if err != nil {
@@ -960,11 +961,11 @@ func (c *BFTChain) updateRuntimeConfig(block *common.Block) types.Reconfig {
 		c.Comm.Configure(c.Channel, newRTC.RemoteNodes)
 	}
 
-	err = c.cs.Initialize(int32(c.Config.SelfID), c.committeePrivateKey, c.ct.CurrentCommittee())
-	if err != nil {
-		c.Logger.Panicf("Failed initializing committee after commit: %v", err)
-	}
-
+	/*	err = c.cs.Initialize(int32(c.Config.SelfID), c.committeePrivateKey, c.ct.CurrentCommittee())
+		if err != nil {
+			c.Logger.Panicf("Failed initializing committee after commit: %v", err)
+		}
+	*/
 	membershipDidNotChange := reflect.DeepEqual(newRTC.Nodes, prevRTC.Nodes)
 	configDidNotChange := reflect.DeepEqual(newRTC.BFTConfig, prevRTC.BFTConfig)
 	noChangeDetected := membershipDidNotChange && configDidNotChange
