@@ -38,6 +38,7 @@ var mcsLogger = flogging.MustGetLogger("peer.gossip.mcs")
 // A similar mechanism needs to be in place to update the local MSP, as well.
 // This implementation assumes that these mechanisms are all in place and working.
 type MSPMessageCryptoService struct {
+	nodeCount                  func(string, uint64) int
 	id2IdentitiesFetcher       Id2IdentitiesFetcher
 	channelPolicyManagerGetter policies.ChannelPolicyManagerGetter
 	localSigner                crypto.LocalSigner
@@ -54,14 +55,17 @@ type Id2IdentitiesFetcher interface {
 // 1. a policies.ChannelPolicyManagerGetter that gives access to the policy manager of a given channel via the Manager method.
 // 2. an instance of crypto.LocalSigner
 // 3. an identity deserializer manager
-func NewMCS(channelPolicyManagerGetter policies.ChannelPolicyManagerGetter,
+func NewMCS(nodeCount func(string, uint64) int,
+	channelPolicyManagerGetter policies.ChannelPolicyManagerGetter,
 	id2IdentitiesFetcher Id2IdentitiesFetcher,
 	localSigner crypto.LocalSigner,
 	deserializer mgmt.DeserializersManager) *MSPMessageCryptoService {
-	return &MSPMessageCryptoService{channelPolicyManagerGetter: channelPolicyManagerGetter,
-		id2IdentitiesFetcher: id2IdentitiesFetcher,
-		localSigner:          localSigner,
-		deserializer:         deserializer}
+	return &MSPMessageCryptoService{
+		nodeCount:                  nodeCount,
+		channelPolicyManagerGetter: channelPolicyManagerGetter,
+		id2IdentitiesFetcher:       id2IdentitiesFetcher,
+		localSigner:                localSigner,
+		deserializer:               deserializer}
 }
 
 // ValidateIdentity validates the identity of a remote peer.
@@ -207,7 +211,7 @@ func (s *MSPMessageCryptoService) verifyHeaderWithMetadata(channelID string, hea
 	}
 
 	// - Evaluate policy
-	return policy.Evaluate(signatureSet)
+	return policy.(policies.BFTPolicy).BFTEvaluate(signatureSet, s.nodeCount(channelID, header.Number))
 }
 
 func (s *MSPMessageCryptoService) VerifyHeader(chainID string, signedBlock *pcommon.Block) error {

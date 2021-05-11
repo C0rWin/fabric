@@ -84,42 +84,48 @@ func (p *policyProvider) NewPolicy(data []byte) (policies.Policy, proto.Message,
 		identities = append(identities, id)
 	}
 
-	q := computeQuorum(len(identities))
-
-	sigEnv := cauthdsl.SignedByNOutOfGivenIdentities(int32(q), identities)
-	sigData, err := proto.Marshal(sigEnv)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "failed to marshal envelope from SignedByNOutOfGivenIdentities signature policy")
-	}
-	sigPol, _, err := p.signaturePolicyProvider.NewPolicy(sigData)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "failed to create SignedByNOutOfGivenRole signature policy")
-	}
-
 	ip := &implicitBFTPolicy{
-		sigPolicy:  sigPol,
-		quorumSize: q,
+		identities:              identities,
+		signaturePolicyProvider: p.signaturePolicyProvider,
 	}
-
-	logger.Debugf("Successfully created an ImplicitOrdererPolicy with rule '%s', and %d out-of %d signature policy",
-		cb.ImplicitOrdererPolicy_Rule_name[int32(definition.Rule)], q, len(identities))
 
 	return ip, nil, nil
 }
 
 type implicitBFTPolicy struct {
-	sigPolicy  policies.Policy // N out of a set of explicit identities, taken from the consenter set
-	quorumSize int             // The BFT quorum size
+	signaturePolicyProvider policies.Provider
+	identities              [][]byte
 }
 
-func (ip *implicitBFTPolicy) Evaluate(signatureSet []*cb.SignedData) error {
-	logger.Debugf("Entry: signatureSet size: %d", len(signatureSet))
+//BFTEvaluate
+func (ip *implicitBFTPolicy) BFTEvaluate(signatureSet []*cb.SignedData, nodeCount int) error {
+	logger.Debugf("SignatureSet size: %d, nodeCount: %d", len(signatureSet), nodeCount)
 
-	if len(signatureSet) < ip.quorumSize {
-		return errors.Errorf("expected at least %d signatures, but there are only %d", ip.quorumSize, len(signatureSet))
+	if nodeCount == 0 {
+		nodeCount = len(ip.identities)
+	}
+
+	q := computeQuorum(nodeCount)
+
+	sigEnv := cauthdsl.SignedByNOutOfGivenIdentities(int32(q), ip.identities)
+	sigData, err := proto.Marshal(sigEnv)
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal envelope from SignedByNOutOfGivenIdentities signature policy")
+	}
+	sigPol, _, err := ip.signaturePolicyProvider.NewPolicy(sigData)
+	if err != nil {
+		return errors.Wrap(err, "failed to create SignedByNOutOfGivenRole signature policy")
+	}
+
+	if len(signatureSet) < q {
+		return errors.Errorf("expected at least %d signatures, but there are only %d", q, len(signatureSet))
 	}
 	// check that quorumSize signatures are valid
-	return ip.sigPolicy.Evaluate(signatureSet)
+	return sigPol.Evaluate(signatureSet)
+}
+
+func (ip *implicitBFTPolicy) Evaluate(_ []*cb.SignedData) error {
+	panic("BFTEvaluate should be used instead")
 }
 
 // computeQuorum calculates the BFT quorum size Q, given a cluster size N.

@@ -16,6 +16,11 @@ import (
 	"testing"
 	"time"
 
+	deliver_mocks "github.com/hyperledger/fabric/common/deliver/mock"
+	mocks3 "github.com/hyperledger/fabric/common/ledger/blockledger/mocks"
+	mocks2 "github.com/hyperledger/fabric/orderer/common/server/mocks"
+	"github.com/hyperledger/fabric/protos/orderer"
+
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/capabilities"
 	"github.com/hyperledger/fabric/common/channelconfig"
@@ -176,13 +181,14 @@ func TestStandardDialer(t *testing.T) {
 func TestVerifyBlockSignature(t *testing.T) {
 	verifier := &mocks.BlockVerifier{}
 	var nilConfigEnvelope *common.ConfigEnvelope
-	verifier.On("VerifyBlockSignature", mock.Anything, nilConfigEnvelope).Return(nil)
+	verifier.On("VerifyBlockSignature", mock.Anything, nilConfigEnvelope, mock.Anything).Return(nil)
 	verifier.On("Id2Identity", mock.Anything).Return(nil)
+	verifier.On("NodeCountForBlock", mock.Anything).Return(0)
 
 	block := createBlockChain(3, 3)[0]
 
 	// The block should have a valid structure
-	err := cluster.VerifyBlockSignature(block, verifier, nil)
+	err := cluster.VerifyBlockSignature(block, verifier, nil, 0)
 	assert.NoError(t, err)
 
 	for _, testCase := range []struct {
@@ -233,7 +239,7 @@ func TestVerifyBlockSignature(t *testing.T) {
 			assert.NoError(t, err)
 			// Mutate the block to sabotage it
 			blockCopy = testCase.mutateBlock(blockCopy)
-			err = cluster.VerifyBlockSignature(blockCopy, verifier, nil)
+			err = cluster.VerifyBlockSignature(blockCopy, verifier, nil, 0)
 			assert.Contains(t, err.Error(), testCase.errorContains)
 		})
 	}
@@ -379,7 +385,7 @@ func TestVerifyBlocks(t *testing.T) {
 			},
 			configureVerifier: func(verifier *mocks.BlockVerifier) {
 				var nilEnvelope *common.ConfigEnvelope
-				verifier.On("VerifyBlockSignature", mock.Anything, nilEnvelope).Return(errors.New("bad signature"))
+				verifier.On("VerifyBlockSignature", mock.Anything, nilEnvelope, mock.Anything).Return(errors.New("bad signature"))
 			},
 			expectedError: "bad signature",
 		},
@@ -424,11 +430,12 @@ func TestVerifyBlocks(t *testing.T) {
 			configureVerifier: func(verifier *mocks.BlockVerifier) {
 				var nilEnvelope *common.ConfigEnvelope
 				// The first config block, validates correctly.
-				verifier.On("VerifyBlockSignature", sigSet1, nilEnvelope).Return(nil).Once()
+				verifier.On("VerifyBlockSignature", sigSet1, nilEnvelope, mock.Anything).Return(nil).Once()
 				// However, the second config block - validates incorrectly.
 				confEnv1 := &common.ConfigEnvelope{}
 				proto.Unmarshal(utils.MarshalOrPanic(configEnvelope1), confEnv1)
-				verifier.On("VerifyBlockSignature", sigSet2, confEnv1).Return(errors.New("bad signature")).Once()
+				verifier.On("VerifyBlockSignature", sigSet2, confEnv1, mock.Anything).Return(errors.New("bad signature")).Once()
+				verifier.On("NodeCountForBlock", mock.Anything).Return(0)
 			},
 			expectedError: "bad signature",
 		},
@@ -457,8 +464,9 @@ func TestVerifyBlocks(t *testing.T) {
 				var nilEnvelope *common.ConfigEnvelope
 				confEnv1 := &common.ConfigEnvelope{}
 				proto.Unmarshal(utils.MarshalOrPanic(configEnvelope1), confEnv1)
-				verifier.On("VerifyBlockSignature", sigSet1, nilEnvelope).Return(nil).Once()
-				verifier.On("VerifyBlockSignature", sigSet2, confEnv1).Return(nil).Once()
+				verifier.On("VerifyBlockSignature", sigSet1, nilEnvelope, mock.Anything).Return(nil).Once()
+				verifier.On("VerifyBlockSignature", sigSet2, confEnv1, mock.Anything).Return(nil).Once()
+				verifier.On("NodeCountForBlock", mock.Anything).Return(0)
 			},
 		},
 		{
@@ -486,13 +494,14 @@ func TestVerifyBlocks(t *testing.T) {
 			configureVerifier: func(verifier *mocks.BlockVerifier) {
 				verifier.Mock = mock.Mock{}
 				verifier.On("Id2Identity", mock.Anything).Return(nil)
+				verifier.On("NodeCountForBlock", mock.Anything).Return(0)
 				confEnv1 := &common.ConfigEnvelope{}
 				proto.Unmarshal(utils.MarshalOrPanic(configEnvelope1), confEnv1)
 
 				for i := 0; i < len(*sequenceSignatures)-1; i++ {
-					verifier.On("VerifyBlockSignature", (*sequenceSignatures)[i], mock.Anything).Return(nil).Once()
+					verifier.On("VerifyBlockSignature", (*sequenceSignatures)[i], mock.Anything, mock.Anything).Return(nil).Once()
 				}
-				verifier.On("VerifyBlockSignature", (*sequenceSignatures)[len(*sequenceSignatures)-1], mock.Anything).Return(errors.New("bad signature")).Once()
+				verifier.On("VerifyBlockSignature", (*sequenceSignatures)[len(*sequenceSignatures)-1], mock.Anything, mock.Anything).Return(errors.New("bad signature")).Once()
 			},
 			expectedError: "bad signature",
 			verifyFunc:    cluster.VerifyBlocksBFT,
@@ -503,6 +512,7 @@ func TestVerifyBlocks(t *testing.T) {
 			blockchain := createBlockChain(50, 100)
 			blockchain = testCase.mutateBlockSequence(blockchain)
 			verifier := &mocks.BlockVerifier{}
+			verifier.On("NodeCountForBlock", mock.Anything).Return(0)
 			verifier.On("Id2Identity", mock.Anything).Return(nil)
 			if testCase.configureVerifier != nil {
 				testCase.configureVerifier(verifier)
@@ -809,7 +819,7 @@ func TestBlockValidationPolicyVerifier(t *testing.T) {
 				},
 			}
 
-			err := verifier.VerifyBlockSignature(nil, testCase.envelope)
+			err := verifier.VerifyBlockSignature(nil, testCase.envelope, 0)
 			if testCase.expectedError != "" {
 				assert.EqualError(t, err, testCase.expectedError)
 			} else {
@@ -827,7 +837,23 @@ func TestBlockVerifierAssembler(t *testing.T) {
 	assert.NotNil(t, group)
 
 	t.Run("Good config envelope", func(t *testing.T) {
-		bva := &cluster.BlockVerifierAssembler{}
+		iterator := &deliver_mocks.BlockIterator{}
+		iterator.NextReturnsOnCall(0, &common.Block{Header: &common.BlockHeader{}}, common.Status_SUCCESS)
+
+		ledger := &mocks3.ReadWriter{}
+		ledger.On("Iterator", &orderer.SeekPosition{
+			Type: &orderer.SeekPosition_Specified{
+				Specified: &orderer.SeekSpecified{Number: 0},
+			},
+		}).Return(iterator, uint64(0))
+
+		lf := &mocks2.Factory{}
+		lf.On("GetOrCreate", "mychannel").Return(ledger, nil)
+
+		bva := &cluster.BlockVerifierAssembler{
+			LedgerFactory: lf,
+		}
+
 		verifier, err := bva.VerifierFromConfig(&common.ConfigEnvelope{
 			Config: &common.Config{
 				ChannelGroup: group,
@@ -835,7 +861,7 @@ func TestBlockVerifierAssembler(t *testing.T) {
 		}, "mychannel")
 		assert.NoError(t, err)
 
-		assert.NoError(t, verifier.VerifyBlockSignature(nil, nil))
+		assert.NoError(t, verifier.VerifyBlockSignature(nil, nil, 0))
 	})
 
 	t.Run("Bad config envelope", func(t *testing.T) {

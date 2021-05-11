@@ -96,7 +96,10 @@ func TestInitGossipService(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func() {
 			defer wg.Done()
-			messageCryptoService := peergossip.NewMCS(&mocks.ChannelPolicyManagerGetter{}, &id2IdentitiesFetcherMock{}, localmsp.NewSigner(), mgmt.NewDeserializersManager())
+			nodeCount := func(string, uint64) int {
+				return 0
+			}
+			messageCryptoService := peergossip.NewMCS(nodeCount, &mocks.ChannelPolicyManagerGetter{}, &id2IdentitiesFetcherMock{}, localmsp.NewSigner(), mgmt.NewDeserializersManager())
 			secAdv := peergossip.NewSecurityAdvisor(mgmt.NewDeserializersManager())
 			err := InitGossipService(identity, &disabled.Provider{}, endpoint, grpcServer, nil,
 				messageCryptoService, secAdv, nil, false)

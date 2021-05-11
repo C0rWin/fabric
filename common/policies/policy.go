@@ -125,6 +125,12 @@ type Policy interface {
 	Evaluate(signatureSet []*cb.SignedData) error
 }
 
+// Policy is used to determine if a signature is valid
+type BFTPolicy interface {
+	// Evaluate takes a set of SignedData and evaluates whether this set of signatures satisfies the policy
+	BFTEvaluate(signatureSet []*cb.SignedData, nodeCount int) error
+}
+
 // InquireablePolicy is a Policy that one can inquire
 type InquireablePolicy interface {
 	// SatisfiedBy returns a slice of PrincipalSets that each of them
@@ -264,6 +270,21 @@ func (pl *policyLogger) Evaluate(signatureSet []*cb.SignedData) error {
 	}
 
 	err := pl.policy.Evaluate(signatureSet)
+	if err != nil {
+		logger.Debugf("Signature set did not satisfy policy %s", pl.policyName)
+	} else {
+		logger.Debugf("Signature set satisfies policy %s", pl.policyName)
+	}
+	return err
+}
+
+func (pl *policyLogger) BFTEvaluate(signatureSet []*cb.SignedData, nodeCount int) error {
+	if logger.IsEnabledFor(zapcore.DebugLevel) {
+		logger.Debugf("== Evaluating %T Policy %s ==", pl.policy, pl.policyName)
+		defer logger.Debugf("== Done Evaluating %T Policy %s", pl.policy, pl.policyName)
+	}
+
+	err := pl.policy.(BFTPolicy).BFTEvaluate(signatureSet, nodeCount)
 	if err != nil {
 		logger.Debugf("Signature set did not satisfy policy %s", pl.policyName)
 	} else {

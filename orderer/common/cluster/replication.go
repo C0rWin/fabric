@@ -412,8 +412,12 @@ func BlockPullerFromConfigBlock(conf PullerConfig, block *common.Block, verifier
 type NoopBlockVerifier struct{}
 
 // VerifyBlockSignature accepts all signatures over blocks.
-func (*NoopBlockVerifier) VerifyBlockSignature(sd []*common.SignedData, config *common.ConfigEnvelope) error {
+func (*NoopBlockVerifier) VerifyBlockSignature(sd []*common.SignedData, config *common.ConfigEnvelope, _ int) error {
 	return nil
+}
+
+func (*NoopBlockVerifier) NodeCountForBlock(height uint64) int {
+	return 0
 }
 
 func (*NoopBlockVerifier) Id2Identity(envelope *common.ConfigEnvelope) map[uint64][]byte {

@@ -63,6 +63,15 @@ func newImplicitMetaPolicy(data []byte, managers map[string]*ManagerImpl) (*impl
 	}, nil
 }
 
+func (imp *implicitMetaPolicy) BFTEvaluate(signatureSet []*cb.SignedData, nodeCount int) error {
+	for _, subpol := range imp.subPolicies {
+		if err := subpol.(BFTPolicy).BFTEvaluate(signatureSet, nodeCount); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Evaluate takes a set of SignedData and evaluates whether this set of signatures satisfies the policy
 func (imp *implicitMetaPolicy) Evaluate(signatureSet []*cb.SignedData) error {
 	logger.Debugf("This is an implicit meta policy, it will trigger other policy evaluations, whose failures may be benign")

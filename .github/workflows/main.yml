@@ -3,7 +3,7 @@ name: Publish docker image
 on: 
   push: 
     branches:
-      - release-1.4-BFT-3
+      - release-1.4-BFT-4
 jobs:
   build:
 

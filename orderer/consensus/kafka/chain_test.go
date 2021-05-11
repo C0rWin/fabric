@@ -3759,7 +3759,11 @@ func (c *mockConsenterSupport) Block(seq uint64) *cb.Block {
 	return nil
 }
 
-func (c *mockConsenterSupport) VerifyBlockSignature([]*cb.SignedData, *cb.ConfigEnvelope) error {
+func (c *mockConsenterSupport) NodeCountForBlock(seq uint64) int {
+	return 0
+}
+
+func (c *mockConsenterSupport) VerifyBlockSignature([]*cb.SignedData, *cb.ConfigEnvelope, int) error {
 	return nil
 }
 

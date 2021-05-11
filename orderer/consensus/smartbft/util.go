@@ -22,6 +22,8 @@ import (
 	"sort"
 	"time"
 
+	types2 "github.com/hyperledger/fabric/orderer/consensus/smartbft/types"
+
 	cs "github.com/SmartBFT-Go/randomcommittees"
 
 	committee "github.com/SmartBFT-Go/randomcommittees/pkg"
@@ -512,7 +514,7 @@ type RuntimeConfig struct {
 	LastBlock                *common.Block
 	LastConfigBlock          *common.Block
 	Nodes                    []uint64
-	CommitteeMetadata        *CommitteeMetadata
+	CommitteeMetadata        *types2.CommitteeMetadata
 	OnCommitteeChange        func(prevCommittee []int32, allNodes []uint64)
 	committeeMinimumLifespan uint32
 	changesCommittee         bool
@@ -522,7 +524,7 @@ func (rtc RuntimeConfig) BlockCommitted(block *common.Block) (RuntimeConfig, err
 	if _, err := cluster.ConfigFromBlock(block); err == nil {
 		return rtc.configBlockCommitted(block)
 	}
-	cm, err := committeeMetadataFromBlock(block)
+	cm, err := types2.CommitteeMetadataFromBlock(block)
 	if err != nil {
 		return RuntimeConfig{}, err
 	}
@@ -565,7 +567,7 @@ func (rtc RuntimeConfig) configBlockCommitted(block *common.Block) (RuntimeConfi
 		rtc.logger.Infof("Committee config is not defined, using the default committee config %v", committeeConfig)
 	}
 
-	cm, err := committeeMetadataFromBlock(block)
+	cm, err := types2.CommitteeMetadataFromBlock(block)
 	if err != nil {
 		return RuntimeConfig{}, err
 	}
@@ -646,19 +648,6 @@ func parseCommitteeConfig(nodeConf *nodeConfig, committeeConfig *smartbft.Commit
 		MandatoryNodes:             mandatoryNodes,
 		Nodes:                      nodes,
 	}
-}
-
-func committeeMetadataFromBlock(block *common.Block) (*CommitteeMetadata, error) {
-	if block.Header.Number == 0 {
-		return nil, nil
-	}
-
-	md := utils2.GetOrdererblockMetadataOrPanic(block).CommitteeMetadata
-	if len(md) == 0 {
-		return nil, nil
-	}
-	cm := &CommitteeMetadata{}
-	return cm, errors.Wrap(cm.Unmarshal(md), "failed extracting committee metadata")
 }
 
 func consensusMDFromBlock(block *common.Block) (*smartbft.ConfigMetadata, error) {

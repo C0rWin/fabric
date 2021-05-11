@@ -43,11 +43,15 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
+func nodeCount(string, uint64) int {
+	return 0
+}
+
 func TestPKIidOfCert(t *testing.T) {
 	deserializersManager := &mocks.DeserializersManager{
 		LocalDeserializer: &mocks.IdentityDeserializer{Identity: []byte("Alice"), Msg: []byte("msg1"), Mock: mock.Mock{}},
 	}
-	msgCryptoService := NewMCS(&mocks.ChannelPolicyManagerGetterWithManager{}, &mocks.Id2IdentitiesFetcherMock{},
+	msgCryptoService := NewMCS(nodeCount, &mocks.ChannelPolicyManagerGetterWithManager{}, &mocks.Id2IdentitiesFetcherMock{},
 		&mockscrypto.LocalSigner{Identity: []byte("Alice")},
 		deserializersManager,
 	)
@@ -79,7 +83,7 @@ func TestPKIidOfCert(t *testing.T) {
 }
 
 func TestPKIidOfNil(t *testing.T) {
-	msgCryptoService := NewMCS(&mocks.ChannelPolicyManagerGetter{}, &mocks.Id2IdentitiesFetcherMock{}, localmsp.NewSigner(), mgmt.NewDeserializersManager())
+	msgCryptoService := NewMCS(nodeCount, &mocks.ChannelPolicyManagerGetter{}, &mocks.Id2IdentitiesFetcherMock{}, localmsp.NewSigner(), mgmt.NewDeserializersManager())
 
 	pkid := msgCryptoService.GetPKIidOfCert(nil)
 	// Check pkid is not nil
@@ -93,7 +97,7 @@ func TestValidateIdentity(t *testing.T) {
 			"A": &mocks.IdentityDeserializer{Identity: []byte("Bob"), Msg: []byte("msg2"), Mock: mock.Mock{}},
 		},
 	}
-	msgCryptoService := NewMCS(
+	msgCryptoService := NewMCS(nodeCount,
 		&mocks.ChannelPolicyManagerGetterWithManager{}, &mocks.Id2IdentitiesFetcherMock{},
 		&mockscrypto.LocalSigner{Identity: []byte("Charlie")},
 		deserializersManager,
@@ -124,7 +128,7 @@ func TestValidateIdentity(t *testing.T) {
 }
 
 func TestSign(t *testing.T) {
-	msgCryptoService := NewMCS(
+	msgCryptoService := NewMCS(nodeCount,
 		&mocks.ChannelPolicyManagerGetter{}, &mocks.Id2IdentitiesFetcherMock{},
 		&mockscrypto.LocalSigner{Identity: []byte("Alice")},
 		mgmt.NewDeserializersManager(),
@@ -137,7 +141,7 @@ func TestSign(t *testing.T) {
 }
 
 func TestVerify(t *testing.T) {
-	msgCryptoService := NewMCS(
+	msgCryptoService := NewMCS(nodeCount,
 		&mocks.ChannelPolicyManagerGetterWithManager{
 			Managers: map[string]policies.Manager{
 				"A": &mocks.ChannelPolicyManager{
@@ -204,6 +208,7 @@ func TestVerifyBlock(t *testing.T) {
 	}
 
 	msgCryptoService := NewMCS(
+		nodeCount,
 		policyManagerGetter,
 		&mocks.Id2IdentitiesFetcherMock{},
 		aliceSigner,
@@ -370,6 +375,7 @@ func TestExpiration(t *testing.T) {
 		},
 	}
 	msgCryptoService := NewMCS(
+		nodeCount,
 		&mocks.ChannelPolicyManagerGetterWithManager{},
 		&mocks.Id2IdentitiesFetcherMock{},
 		&mockscrypto.LocalSigner{Identity: []byte("Yacov")},

@@ -74,11 +74,13 @@ type ConsenterSupport interface {
 	crypto.LocalSigner
 	msgprocessor.Processor
 
+	NodeCountForBlock(seq uint64) int
+
 	Id2Identity(envelope *cb.ConfigEnvelope) map[uint64][]byte
 
 	// VerifyBlockSignature verifies a signature of a block with a given optional
 	// configuration (can be nil).
-	VerifyBlockSignature([]*cb.SignedData, *cb.ConfigEnvelope) error
+	VerifyBlockSignature([]*cb.SignedData, *cb.ConfigEnvelope, int) error
 
 	// BlockCutter returns the block cutting helper for this channel.
 	BlockCutter() blockcutter.Receiver

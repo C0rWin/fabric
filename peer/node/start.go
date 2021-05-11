@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hyperledger/fabric/orderer/consensus/smartbft/types"
+
 	cs "github.com/SmartBFT-Go/randomcommittees"
 
 	"github.com/hyperledger/fabric/common/channelconfig"
@@ -335,8 +337,33 @@ func serve(args []string) error {
 
 	policyMgr := peer.NewChannelPolicyManagerGetter()
 
+	nodeCount := func(chain string, blockSeq uint64) int {
+		if blockSeq <= 1 {
+			return 0
+		}
+		it, err := peer.GetLedger(chain).GetBlocksIterator(blockSeq - 1)
+		if err != nil {
+			logger.Panicf("Failed obtaining block iterator for channel %s: %v", chain, err)
+		}
+		defer it.Close()
+
+		result, err := it.Next()
+		if err != nil {
+			logger.Panicf("Iterator failed: %v", err)
+		}
+
+		block := result.(*cb.Block)
+
+		logger.Debugf("Extracting committee metadata of block %d", block.Header.Number)
+
+		if md, _ := types.CommitteeMetadataFromBlock(block); md != nil {
+			return int(md.CommitteeSize)
+		}
+		return 0
+	}
+
 	// Initialize gossip component
-	err = initGossipService(policyMgr, metricsProvider, peerServer, serializedIdentity, peerEndpoint.Address)
+	err = initGossipService(nodeCount, policyMgr, metricsProvider, peerServer, serializedIdentity, peerEndpoint.Address)
 	if err != nil {
 		return err
 	}
@@ -883,7 +910,8 @@ func secureDialOpts() []grpc.DialOption {
 // 2. Init the message crypto service;
 // 3. Init the security advisor;
 // 4. Init gossip related struct.
-func initGossipService(policyMgr policies.ChannelPolicyManagerGetter, metricsProvider metrics.Provider,
+func initGossipService(nodeCount func(string, uint64) int,
+	policyMgr policies.ChannelPolicyManagerGetter, metricsProvider metrics.Provider,
 	peerServer *comm.GRPCServer, serializedIdentity []byte, peerAddr string) error {
 	var certs *gossipcommon.TLSCertificates
 	if peerServer.TLSEnabled() {
@@ -898,6 +926,7 @@ func initGossipService(policyMgr policies.ChannelPolicyManagerGetter, metricsPro
 	}
 
 	messageCryptoService := peergossip.NewMCS(
+		nodeCount,
 		policyMgr,
 		&peer.IdentityFethcer{},
 		localmsp.NewSigner(),

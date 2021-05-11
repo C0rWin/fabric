@@ -762,8 +762,9 @@ func panicMsg(f func()) string {
 func TestCreateReplicator(t *testing.T) {
 	cleanup := configtest.SetDevFabricConfigPath(t)
 	defer cleanup()
-	bootBlock := encoder.New(genesisconfig.Load(genesisconfig.SampleDevModeSoloProfile)).GenesisBlockForChannel("system")
-
+	profile := genesisconfig.Load(genesisconfig.SampleDevModeSmartBFTProfile)
+	profile.Orderer.SmartBFT.Consenters = nil
+	bootBlock := encoder.New(profile).GenesisBlockForChannel("system")
 	iterator := &deliver_mocks.BlockIterator{}
 	iterator.NextReturnsOnCall(0, bootBlock, common.Status_SUCCESS)
 	iterator.NextReturnsOnCall(1, bootBlock, common.Status_SUCCESS)
@@ -779,9 +780,9 @@ func TestCreateReplicator(t *testing.T) {
 	signer := &crypto.LocalSigner{}
 	r := createReplicator(ledgerFactory, bootBlock, &localconfig.TopLevel{}, &comm.SecureOptions{}, signer)
 
-	err := r.verifierRetriever.RetrieveVerifier("mychannel").VerifyBlockSignature(nil, nil)
-	assert.EqualError(t, err, "implicit policy evaluation failed - 0 sub-policies were satisfied, but this policy requires 1 of the 'Writers' sub-policies to be satisfied")
+	err := r.verifierRetriever.RetrieveVerifier("mychannel").VerifyBlockSignature(nil, nil, 0)
+	assert.EqualError(t, err, "expected at least 1 signatures, but there are only 0")
 
-	err = r.verifierRetriever.RetrieveVerifier("system").VerifyBlockSignature(nil, nil)
+	err = r.verifierRetriever.RetrieveVerifier("system").VerifyBlockSignature(nil, nil, 0)
 	assert.NoError(t, err)
 }

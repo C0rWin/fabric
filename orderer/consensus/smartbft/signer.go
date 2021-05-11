@@ -10,6 +10,8 @@ import (
 	"encoding/asn1"
 	"encoding/base64"
 
+	types2 "github.com/hyperledger/fabric/orderer/consensus/smartbft/types"
+
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	committee "github.com/SmartBFT-Go/randomcommittees/pkg"
 	"github.com/golang/protobuf/proto"
@@ -59,7 +61,7 @@ func (s *Signer) SignProposal(proposal types.Proposal, auxiliaryInput []byte) *t
 
 	obm := utils.GetOrdererblockMetadataOrPanic(block)
 
-	cm := &CommitteeMetadata{}
+	cm := &types2.CommitteeMetadata{}
 	if err := cm.Unmarshal(obm.CommitteeMetadata); err != nil {
 		s.Logger.Panicf("Failed unmarshaling committee metadata on an agreed upon block: %v", err)
 	}

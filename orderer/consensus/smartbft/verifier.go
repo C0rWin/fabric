@@ -14,6 +14,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	types2 "github.com/hyperledger/fabric/orderer/consensus/smartbft/types"
+
 	committee "github.com/SmartBFT-Go/randomcommittees/pkg"
 
 	"github.com/hyperledger/fabric/protos/orderer/smartbft"
@@ -444,7 +446,7 @@ func (v *Verifier) verifySignatureIsBoundToProposal(sig *Signature, identity []b
 		return errors.Errorf("signature's OrdererBlockMetadata and OrdererBlockMetadata extracted from block do not match")
 	}
 
-	cm := &CommitteeMetadata{}
+	cm := &types2.CommitteeMetadata{}
 	if err := cm.Unmarshal(ordererMDFromBlock.CommitteeMetadata); err != nil {
 		return errors.Errorf("failed unmarshaling committee metadata (%s): %v",
 			base64.StdEncoding.EncodeToString(ordererMDFromBlock.CommitteeMetadata), err)

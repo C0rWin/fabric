@@ -119,6 +119,17 @@ type FakeConsenterSupport struct {
 		result1 *common.SignatureHeader
 		result2 error
 	}
+	NodeCountForBlockStub        func(uint64) int
+	nodeCountForBlockMutex       sync.RWMutex
+	nodeCountForBlockArgsForCall []struct {
+		arg1 uint64
+	}
+	nodeCountForBlockReturns struct {
+		result1 int
+	}
+	nodeCountForBlockReturnsOnCall map[int]struct {
+		result1 int
+	}
 	ProcessConfigMsgStub        func(*common.Envelope) (*common.Envelope, uint64, error)
 	processConfigMsgMutex       sync.RWMutex
 	processConfigMsgArgsForCall []struct {
@@ -195,11 +206,12 @@ type FakeConsenterSupport struct {
 		result1 []byte
 		result2 error
 	}
-	VerifyBlockSignatureStub        func([]*common.SignedData, *common.ConfigEnvelope) error
+	VerifyBlockSignatureStub        func([]*common.SignedData, *common.ConfigEnvelope, int) error
 	verifyBlockSignatureMutex       sync.RWMutex
 	verifyBlockSignatureArgsForCall []struct {
 		arg1 []*common.SignedData
 		arg2 *common.ConfigEnvelope
+		arg3 int
 	}
 	verifyBlockSignatureReturns struct {
 		result1 error
@@ -791,6 +803,66 @@ func (fake *FakeConsenterSupport) NewSignatureHeaderReturnsOnCall(i int, result1
 	}{result1, result2}
 }
 
+func (fake *FakeConsenterSupport) NodeCountForBlock(arg1 uint64) int {
+	fake.nodeCountForBlockMutex.Lock()
+	ret, specificReturn := fake.nodeCountForBlockReturnsOnCall[len(fake.nodeCountForBlockArgsForCall)]
+	fake.nodeCountForBlockArgsForCall = append(fake.nodeCountForBlockArgsForCall, struct {
+		arg1 uint64
+	}{arg1})
+	fake.recordInvocation("NodeCountForBlock", []interface{}{arg1})
+	fake.nodeCountForBlockMutex.Unlock()
+	if fake.NodeCountForBlockStub != nil {
+		return fake.NodeCountForBlockStub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	fakeReturns := fake.nodeCountForBlockReturns
+	return fakeReturns.result1
+}
+
+func (fake *FakeConsenterSupport) NodeCountForBlockCallCount() int {
+	fake.nodeCountForBlockMutex.RLock()
+	defer fake.nodeCountForBlockMutex.RUnlock()
+	return len(fake.nodeCountForBlockArgsForCall)
+}
+
+func (fake *FakeConsenterSupport) NodeCountForBlockCalls(stub func(uint64) int) {
+	fake.nodeCountForBlockMutex.Lock()
+	defer fake.nodeCountForBlockMutex.Unlock()
+	fake.NodeCountForBlockStub = stub
+}
+
+func (fake *FakeConsenterSupport) NodeCountForBlockArgsForCall(i int) uint64 {
+	fake.nodeCountForBlockMutex.RLock()
+	defer fake.nodeCountForBlockMutex.RUnlock()
+	argsForCall := fake.nodeCountForBlockArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeConsenterSupport) NodeCountForBlockReturns(result1 int) {
+	fake.nodeCountForBlockMutex.Lock()
+	defer fake.nodeCountForBlockMutex.Unlock()
+	fake.NodeCountForBlockStub = nil
+	fake.nodeCountForBlockReturns = struct {
+		result1 int
+	}{result1}
+}
+
+func (fake *FakeConsenterSupport) NodeCountForBlockReturnsOnCall(i int, result1 int) {
+	fake.nodeCountForBlockMutex.Lock()
+	defer fake.nodeCountForBlockMutex.Unlock()
+	fake.NodeCountForBlockStub = nil
+	if fake.nodeCountForBlockReturnsOnCall == nil {
+		fake.nodeCountForBlockReturnsOnCall = make(map[int]struct {
+			result1 int
+		})
+	}
+	fake.nodeCountForBlockReturnsOnCall[i] = struct {
+		result1 int
+	}{result1}
+}
+
 func (fake *FakeConsenterSupport) ProcessConfigMsg(arg1 *common.Envelope) (*common.Envelope, uint64, error) {
 	fake.processConfigMsgMutex.Lock()
 	ret, specificReturn := fake.processConfigMsgReturnsOnCall[len(fake.processConfigMsgArgsForCall)]
@@ -1158,7 +1230,7 @@ func (fake *FakeConsenterSupport) SignReturnsOnCall(i int, result1 []byte, resul
 	}{result1, result2}
 }
 
-func (fake *FakeConsenterSupport) VerifyBlockSignature(arg1 []*common.SignedData, arg2 *common.ConfigEnvelope) error {
+func (fake *FakeConsenterSupport) VerifyBlockSignature(arg1 []*common.SignedData, arg2 *common.ConfigEnvelope, arg3 int) error {
 	var arg1Copy []*common.SignedData
 	if arg1 != nil {
 		arg1Copy = make([]*common.SignedData, len(arg1))
@@ -1169,11 +1241,12 @@ func (fake *FakeConsenterSupport) VerifyBlockSignature(arg1 []*common.SignedData
 	fake.verifyBlockSignatureArgsForCall = append(fake.verifyBlockSignatureArgsForCall, struct {
 		arg1 []*common.SignedData
 		arg2 *common.ConfigEnvelope
-	}{arg1Copy, arg2})
-	fake.recordInvocation("VerifyBlockSignature", []interface{}{arg1Copy, arg2})
+		arg3 int
+	}{arg1Copy, arg2, arg3})
+	fake.recordInvocation("VerifyBlockSignature", []interface{}{arg1Copy, arg2, arg3})
 	fake.verifyBlockSignatureMutex.Unlock()
 	if fake.VerifyBlockSignatureStub != nil {
-		return fake.VerifyBlockSignatureStub(arg1, arg2)
+		return fake.VerifyBlockSignatureStub(arg1, arg2, arg3)
 	}
 	if specificReturn {
 		return ret.result1
@@ -1188,17 +1261,17 @@ func (fake *FakeConsenterSupport) VerifyBlockSignatureCallCount() int {
 	return len(fake.verifyBlockSignatureArgsForCall)
 }
 
-func (fake *FakeConsenterSupport) VerifyBlockSignatureCalls(stub func([]*common.SignedData, *common.ConfigEnvelope) error) {
+func (fake *FakeConsenterSupport) VerifyBlockSignatureCalls(stub func([]*common.SignedData, *common.ConfigEnvelope, int) error) {
 	fake.verifyBlockSignatureMutex.Lock()
 	defer fake.verifyBlockSignatureMutex.Unlock()
 	fake.VerifyBlockSignatureStub = stub
 }
 
-func (fake *FakeConsenterSupport) VerifyBlockSignatureArgsForCall(i int) ([]*common.SignedData, *common.ConfigEnvelope) {
+func (fake *FakeConsenterSupport) VerifyBlockSignatureArgsForCall(i int) ([]*common.SignedData, *common.ConfigEnvelope, int) {
 	fake.verifyBlockSignatureMutex.RLock()
 	defer fake.verifyBlockSignatureMutex.RUnlock()
 	argsForCall := fake.verifyBlockSignatureArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
 }
 
 func (fake *FakeConsenterSupport) VerifyBlockSignatureReturns(result1 error) {
@@ -1321,6 +1394,8 @@ func (fake *FakeConsenterSupport) Invocations() map[string][][]interface{} {
 	defer fake.id2IdentityMutex.RUnlock()
 	fake.newSignatureHeaderMutex.RLock()
 	defer fake.newSignatureHeaderMutex.RUnlock()
+	fake.nodeCountForBlockMutex.RLock()
+	defer fake.nodeCountForBlockMutex.RUnlock()
 	fake.processConfigMsgMutex.RLock()
 	defer fake.processConfigMsgMutex.RUnlock()
 	fake.processConfigUpdateMsgMutex.RLock()

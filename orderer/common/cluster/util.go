@@ -16,6 +16,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hyperledger/fabric/common/ledger/blockledger"
+	"github.com/hyperledger/fabric/orderer/consensus/smartbft/types"
+
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/configtx"
@@ -175,7 +178,7 @@ func (dialer *StandardDialer) Dial(endpointCriteria EndpointCriteria) (*grpc.Cli
 	return client.NewConnection(endpointCriteria.Endpoint, "")
 }
 
-//go:generate mockery -dir . -name BlockVerifier -case underscore -output ./mocks/
+//go:generate mockery --dir . --name BlockVerifier --case underscore --output ./mocks/
 
 // BlockVerifier verifies block signatures.
 type BlockVerifier interface {
@@ -185,9 +188,11 @@ type BlockVerifier interface {
 	// based on the given configuration in the ConfigEnvelope.
 	// If the config envelope passed is nil, then the validation rules used
 	// are the ones that were applied at commit of previous blocks.
-	VerifyBlockSignature(sd []*common.SignedData, config *common.ConfigEnvelope) error
+	VerifyBlockSignature(sd []*common.SignedData, config *common.ConfigEnvelope, nodeCount int) error
 
 	Id2Identity(envelope *common.ConfigEnvelope) map[uint64][]byte
+
+	NodeCountForBlock(seq uint64) int
 }
 
 // BlockSequenceVerifier verifies that the given consecutive sequence
@@ -222,6 +227,8 @@ func verifyBlockSequence(blockBuff []*common.Block, signatureVerifier BlockVerif
 		}
 	}
 
+	committeeSize := signatureVerifier.NodeCountForBlock(blockBuff[0].Header.Number)
+
 	var config *common.ConfigEnvelope
 	var isLastBlockConfigBlock bool
 	// Verify all configuration blocks that are found inside the block batch,
@@ -236,12 +243,17 @@ func verifyBlockSequence(blockBuff []*common.Block, signatureVerifier BlockVerif
 		if err != nil && !alwaysCheckSig {
 			return err
 		}
+
 		// The block is a configuration block, so verify it
-		if err := VerifyBlockSignature(block, signatureVerifier, config); err != nil {
+		if err := VerifyBlockSignature(block, signatureVerifier, config, committeeSize); err != nil {
 			return err
 		}
 		config = configFromBlock
 		isLastBlockConfigBlock = true
+
+		if md, _ := types.CommitteeMetadataFromBlock(block); md != nil {
+			committeeSize = int(md.CommitteeSize)
+		}
 	}
 
 	// If last block is a config block, we verified it using the policy of the previous block, so it's valid.
@@ -251,7 +263,8 @@ func verifyBlockSequence(blockBuff []*common.Block, signatureVerifier BlockVerif
 
 	// Verify the last block's signature
 	lastBlock := blockBuff[len(blockBuff)-1]
-	return VerifyBlockSignature(lastBlock, signatureVerifier, config)
+
+	return VerifyBlockSignature(lastBlock, signatureVerifier, config, committeeSize)
 }
 
 var errNotAConfig = errors.New("not a config block")
@@ -376,13 +389,13 @@ func SignatureSetFromBlock(block *common.Block, id2identities map[uint64][]byte)
 }
 
 // VerifyBlockSignature verifies the signature on the block with the given BlockVerifier and the given config.
-func VerifyBlockSignature(block *common.Block, verifier BlockVerifier, config *common.ConfigEnvelope) error {
+func VerifyBlockSignature(block *common.Block, verifier BlockVerifier, config *common.ConfigEnvelope, committeeSize int) error {
 	id2identities := verifier.Id2Identity(config)
 	signatureSet, err := SignatureSetFromBlock(block, id2identities)
 	if err != nil {
 		return err
 	}
-	return verifier.VerifyBlockSignature(signatureSet, config)
+	return verifier.VerifyBlockSignature(signatureSet, config, committeeSize)
 }
 
 // EndpointCriteria defines criteria of how to connect to a remote orderer node.
@@ -565,7 +578,8 @@ func (interceptor *LedgerInterceptor) Append(block *common.Block) error {
 
 // BlockVerifierAssembler creates a BlockVerifier out of a config envelope
 type BlockVerifierAssembler struct {
-	Logger *flogging.FabricLogger
+	Logger        *flogging.FabricLogger
+	LedgerFactory blockledger.Factory
 }
 
 // VerifierFromConfig creates a BlockVerifier from the given configuration.
@@ -576,7 +590,13 @@ func (bva *BlockVerifierAssembler) VerifierFromConfig(configuration *common.Conf
 	}
 	policyMgr := bundle.PolicyManager()
 
+	ledger, err := bva.LedgerFactory.GetOrCreate(channel)
+	if err != nil {
+		return nil, err
+	}
+
 	return &BlockValidationPolicyVerifier{
+		ledger:    ledger,
 		envelope:  configuration,
 		Logger:    bva.Logger,
 		PolicyMgr: policyMgr,
@@ -586,14 +606,27 @@ func (bva *BlockVerifierAssembler) VerifierFromConfig(configuration *common.Conf
 
 // BlockValidationPolicyVerifier verifies signatures based on the block validation policy.
 type BlockValidationPolicyVerifier struct {
+	ledger    blockledger.ReadWriter
 	Logger    *flogging.FabricLogger
 	Channel   string
 	PolicyMgr policies.Manager
 	envelope  *common.ConfigEnvelope
 }
 
+func (bv *BlockValidationPolicyVerifier) NodeCountForBlock(seq uint64) int {
+	if seq <= 1 {
+		return 0
+	}
+
+	block := blockledger.GetBlock(bv.ledger, seq-1)
+	if md, _ := types.CommitteeMetadataFromBlock(block); md != nil {
+		return int(md.CommitteeSize)
+	}
+	return 0
+}
+
 // VerifyBlockSignature verifies the signed data associated to a block, optionally with the given config envelope.
-func (bv *BlockValidationPolicyVerifier) VerifyBlockSignature(sd []*common.SignedData, envelope *common.ConfigEnvelope) error {
+func (bv *BlockValidationPolicyVerifier) VerifyBlockSignature(sd []*common.SignedData, envelope *common.ConfigEnvelope, committeeSize int) error {
 	policyMgr := bv.PolicyMgr
 	// If the envelope passed isn't nil, we should use a different policy manager.
 	if envelope != nil {
@@ -611,7 +644,7 @@ func (bv *BlockValidationPolicyVerifier) VerifyBlockSignature(sd []*common.Signe
 	if !exists {
 		return errors.Errorf("policy %s wasn't found", policies.BlockValidation)
 	}
-	return policy.Evaluate(sd)
+	return policy.(policies.BFTPolicy).BFTEvaluate(sd, committeeSize)
 }
 
 func (bv *BlockValidationPolicyVerifier) Id2Identity(envelope *common.ConfigEnvelope) map[uint64][]byte {

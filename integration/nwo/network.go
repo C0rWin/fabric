@@ -1056,7 +1056,7 @@ func (n *Network) OrdererRunner(o *Orderer) *ginkgomon.Runner {
 		Name:              o.ID(),
 		Command:           cmd,
 		StartCheck:        "Beginning to serve requests",
-		StartCheckTimeout: 15 * time.Second,
+		StartCheckTimeout: 30 * time.Second,
 	}
 
 	//After consensus-type migration, the #brokers is >0, but the type is etcdraft

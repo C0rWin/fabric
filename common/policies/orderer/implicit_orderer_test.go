@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/hyperledger/fabric/common/policies"
+
 	"github.com/hyperledger/fabric/protos/utils"
 
 	"github.com/golang/protobuf/proto"
@@ -53,7 +55,6 @@ func TestPolicyProvider_NewPolicy(t *testing.T) {
 		p, _, err := provider.NewPolicy(policyBytes)
 		assert.NotNil(t, p)
 		assert.NoError(t, err)
-		assert.Equal(t, p.(*implicitBFTPolicy).quorumSize, computeQuorum(4))
 	})
 }
 
@@ -76,7 +77,7 @@ func TestImplicitBFTPolicy_Evaluate(t *testing.T) {
 		p, _, err := provider.NewPolicy(policyBytes)
 		assert.NotNil(t, p)
 		assert.NoError(t, err)
-		err = p.Evaluate(nil)
+		err = p.(policies.BFTPolicy).BFTEvaluate(nil, 0)
 		assert.EqualError(t, err, "expected at least 3 signatures, but there are only 0")
 	})
 
@@ -109,7 +110,7 @@ func TestImplicitBFTPolicy_Evaluate(t *testing.T) {
 		mockID3.On("Verify", data, sig3).Return(nil)
 
 		signatureSet := []*common.SignedData{sd1, sd2, sd3}
-		err = p.Evaluate(signatureSet)
+		err = p.(policies.BFTPolicy).BFTEvaluate(signatureSet, 0)
 		assert.NoError(t, err)
 	})
 
@@ -122,7 +123,7 @@ func TestImplicitBFTPolicy_Evaluate(t *testing.T) {
 		assert.NotNil(t, p)
 		assert.NoError(t, err)
 
-		err = p.Evaluate(nil)
+		err = p.(policies.BFTPolicy).BFTEvaluate(nil, 0)
 		assert.EqualError(t, err, "expected at least 3 signatures, but there are only 0")
 
 		mockID1 := &mocks.IdentityMock{}
@@ -146,7 +147,7 @@ func TestImplicitBFTPolicy_Evaluate(t *testing.T) {
 		mockID3.On("Verify", data, sig3).Return(errors.New("bad sig"))
 
 		signatureSet := []*common.SignedData{sd1, sd2, sd3}
-		err = p.Evaluate(signatureSet)
+		err = p.(policies.BFTPolicy).BFTEvaluate(signatureSet, 0)
 		assert.EqualError(t, err, "signature set did not satisfy policy")
 	})
 
@@ -159,7 +160,7 @@ func TestImplicitBFTPolicy_Evaluate(t *testing.T) {
 		assert.NotNil(t, p)
 		assert.NoError(t, err)
 
-		err = p.Evaluate(nil)
+		err = p.(policies.BFTPolicy).BFTEvaluate(nil, 0)
 		assert.EqualError(t, err, "expected at least 3 signatures, but there are only 0")
 
 		mockID1 := &mocks.IdentityMock{}
@@ -189,7 +190,7 @@ func TestImplicitBFTPolicy_Evaluate(t *testing.T) {
 		mockID4.On("Verify", data, sig4).Return(nil)
 
 		signatureSet := []*common.SignedData{sd1, sd2, sd3, sd4}
-		err = p.Evaluate(signatureSet)
+		err = p.(policies.BFTPolicy).BFTEvaluate(signatureSet, 0)
 		assert.NoError(t, err)
 	})
 

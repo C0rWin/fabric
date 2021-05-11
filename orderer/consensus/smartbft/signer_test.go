@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	types2 "github.com/hyperledger/fabric/orderer/consensus/smartbft/types"
+
 	committee "github.com/SmartBFT-Go/randomcommittees/pkg"
 
 	"github.com/SmartBFT-Go/consensus/pkg/types"
@@ -109,7 +111,7 @@ func TestSignProposal(t *testing.T) {
 	assert.NoError(t, proto.Unmarshal(signature.SignatureHeader, sigHdr))
 	assert.Nil(t, sigHdr.Creator)
 	assert.Equal(t, signature.OrdererBlockMetadata, utils.MarshalOrPanic(&common.OrdererBlockMetadata{
-		CommitteeMetadata: (&smartbft.CommitteeMetadata{GenesisConfigAt: 19}).Marshal(),
+		CommitteeMetadata: (&types2.CommitteeMetadata{GenesisConfigAt: 19}).Marshal(),
 		LastConfig:        &common.LastConfig{Index: 10},
 		ConsenterMetadata: prop.Metadata,
 	}))

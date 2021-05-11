@@ -111,15 +111,13 @@ func (a *Assembler) committeeCommitmentAndMetadata(blockNum int64) ([]byte, []by
 	// which encodes the block number where the last commit resides in.
 	commitment, newState := a.MaybeCommit()
 
-	a.Logger.Debugf("Previous committee metadata: %v", rtc.CommitteeMetadata)
-
 	currentCommittee := a.CurrentCommittee()
 	expectedCommitters := (len(currentCommittee)-1)/3 + 1
 	committeeMD := CommitteeMetadataForProposal(a.Logger, commitment, newState, rtc.CommitteeMetadata, blockNum,
 		expectedCommitters,
 		rtc.committeeMinimumLifespan, currentCommittee, int32(rtc.id))
 
-	a.Logger.Infof("Creating committee metadata for block %d: %+v", blockNum, committeeMD)
+	a.Logger.Infof("Creating committee metadata for block %d: %+v and previous metadata: %+v", blockNum, committeeMD, rtc.CommitteeMetadata)
 
 	return commitment, committeeMD.Marshal()
 

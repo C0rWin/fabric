@@ -69,7 +69,7 @@ func TestVerifyBlockSignature(t *testing.T) {
 
 	// Scenario I: Policy manager isn't initialized
 	// and thus policy cannot be found
-	err := cs.VerifyBlockSignature([]*common.SignedData{}, nil)
+	err := cs.VerifyBlockSignature([]*common.SignedData{}, nil, 0)
 	assert.EqualError(t, err, "policy /Channel/Orderer/BlockValidation wasn't found")
 
 	// Scenario II: Policy manager finds policy, but it evaluates
@@ -77,21 +77,21 @@ func TestVerifyBlockSignature(t *testing.T) {
 	policyMgr.PolicyMap["/Channel/Orderer/BlockValidation"] = &mockpolicies.Policy{
 		Err: errors.New("invalid signature"),
 	}
-	err = cs.VerifyBlockSignature([]*common.SignedData{}, nil)
+	err = cs.VerifyBlockSignature([]*common.SignedData{}, nil, 0)
 	assert.EqualError(t, err, "block verification failed: invalid signature")
 
 	// Scenario III: Policy manager finds policy, and it evaluates to success
 	policyMgr.PolicyMap["/Channel/Orderer/BlockValidation"] = &mockpolicies.Policy{
 		Err: nil,
 	}
-	assert.NoError(t, cs.VerifyBlockSignature([]*common.SignedData{}, nil))
+	assert.NoError(t, cs.VerifyBlockSignature([]*common.SignedData{}, nil, 0))
 
 	// Scenario IV: A bad config envelope is passed
-	err = cs.VerifyBlockSignature([]*common.SignedData{}, &common.ConfigEnvelope{})
+	err = cs.VerifyBlockSignature([]*common.SignedData{}, &common.ConfigEnvelope{}, 0)
 	assert.EqualError(t, err, "channelconfig Config cannot be nil")
 
 	// Scenario V: A valid config envelope is passed
-	assert.NoError(t, cs.VerifyBlockSignature([]*common.SignedData{}, testConfigEnvelope(t)))
+	assert.NoError(t, cs.VerifyBlockSignature([]*common.SignedData{}, testConfigEnvelope(t), 0))
 
 }
 

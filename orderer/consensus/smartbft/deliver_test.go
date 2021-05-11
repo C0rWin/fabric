@@ -68,7 +68,7 @@ func TestBlocksStreamPuller_ContinuouslyPullBlocks(t *testing.T) {
 
 	signer := &crypto.LocalSigner{}
 
-	blockVerifier.On("VerifyBlockSignature", mock.Anything, mock.Anything).Run(
+	blockVerifier.On("VerifyBlockSignature", mock.Anything, mock.Anything, mock.Anything).Run(
 		func(args mock.Arguments) {
 			signatureSet, ok := args.Get(0).([]*common.SignedData)
 			assert.True(t, ok)
@@ -121,13 +121,14 @@ func TestBlocksStreamPuller_ContinuouslyPullBlocks(t *testing.T) {
 	assert.NoError(t, err)
 
 	puller := &smartbft.BlocksStreamPuller{
+		CommitteeSize: func() int { return 0 },
+		OnBlockCommit: func(_ *common.Block) {},
 		RetryTimeout:  time.Millisecond,
 		FetchTimeout:  5 * time.Second,
 		Ledger:        ledger,
 		Dialer:        &testDialer{},
 		BlockVerifier: blockVerifier,
 		Signer:        signer,
-		StreamCreator: smartbft.NewImpatientStream,
 		LastBlock:     lastBlock,
 		Logger:        flogging.MustGetLogger("test"),
 		Channel:       channelID,

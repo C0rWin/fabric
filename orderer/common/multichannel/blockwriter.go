@@ -92,6 +92,11 @@ func (bw *BlockWriter) CreateNextBlock(messages []*cb.Envelope) *cb.Block {
 // This call will block until the new config has taken effect, then will return
 // while the block is written asynchronously to disk.
 func (bw *BlockWriter) WriteConfigBlock(block *cb.Block, encodedMetadataValue []byte) {
+	lastBlock := bw.support.Height() - 1
+	if lastBlock >= block.Header.Number {
+		logger.Errorf("Attempted to write block %d but last block was %d", block.Header.Number, lastBlock)
+		return
+	}
 	ctx, err := utils.ExtractEnvelope(block, 0)
 	if err != nil {
 		logger.Panicf("Told to write a config block, but could not get configtx: %s", err)

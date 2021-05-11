@@ -19,75 +19,12 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
+	"github.com/hyperledger/fabric/orderer/consensus/smartbft/types"
+	. "github.com/hyperledger/fabric/orderer/consensus/smartbft/types"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/orderer/smartbft"
 	"github.com/pkg/errors"
 )
-
-// CommitteeMetadata encodes committee metadata
-// for a block.
-type CommitteeMetadata struct {
-	State            RawState        // State of this current committee.
-	Committers       []int32         // The identifiers of who committed in this committee
-	FinalStateIndex  int64           // The block number of the last finalized state that was used to pick this committee
-	CommitteeShiftAt int64           // The block number that contains reconstruction shares that reveal this committee
-	CommitteeAtShift committee.Nodes // The committee at the time of the shift to this committee
-	GenesisConfigAt  int64           // The block number of the first ever committee instance
-}
-
-type RawState []byte
-
-func (rs RawState) String() string {
-	return base64.StdEncoding.EncodeToString(rs)
-}
-
-func (cm *CommitteeMetadata) committed(id int32) bool {
-	for _, e := range cm.Committers {
-		if e == id {
-			return true
-		}
-	}
-	return false
-}
-
-func (cm *CommitteeMetadata) shouldCommit(id int32, expectedCommitters int, logger committee.Logger) bool {
-	if cm == nil {
-		logger.Debugf("committee metadata is nil")
-		return true
-	}
-	if len(cm.Committers) >= expectedCommitters {
-		logger.Debugf("We have %d committers and %d are sufficient", len(cm.Committers), expectedCommitters)
-		return false
-	}
-	logger.Debugf("We have %d committers and we need %d in total", len(cm.Committers), expectedCommitters)
-	didNotCommit := !cm.committed(id)
-	if didNotCommit {
-		logger.Debugf("%d has not committed yet", id)
-		return true
-	}
-	logger.Debugf("%d has already committed", id)
-	return false
-}
-
-func (cm *CommitteeMetadata) Unmarshal(bytes []byte) error {
-	if len(bytes) == 0 {
-		return nil
-	}
-	_, err := asn1.Unmarshal(bytes, cm)
-	return err
-}
-
-func (cm *CommitteeMetadata) Marshal() []byte {
-	if cm == nil ||
-		(len(cm.Committers) == 0 && len(cm.State) == 0 && cm.GenesisConfigAt == 0 && cm.FinalStateIndex == 0 && cm.CommitteeShiftAt == 0) {
-		return nil
-	}
-	bytes, err := asn1.Marshal(*cm)
-	if err != nil {
-		panic(err)
-	}
-	return bytes
-}
 
 type CommitteeTracker struct {
 	committeeDisabled bool
@@ -131,6 +68,10 @@ type CommitteeSelection interface {
 
 // CommitteeRetriever retrieves the committee.
 type CommitteeRetriever struct {
+	lock            sync.RWMutex
+	latestHeight    uint64
+	latestCommittee committee.Nodes
+
 	committeeDisabled     bool
 	NewCommitteeSelection func(logger committee.Logger) committee.Selection
 	Ledger                Ledger
@@ -149,7 +90,7 @@ func (cr *CommitteeRetriever) CurrentState(forCommit bool) committee.State {
 	}
 
 	lastBlock := LastBlockFromLedgerOrPanic(cr.Ledger, cr.Logger)
-	md, err := committeeMetadataFromBlock(lastBlock)
+	md, err := CommitteeMetadataFromBlock(lastBlock)
 	if err != nil {
 		cr.Logger.Panicf("Failed extracting committee metadata from block %d: %v", lastBlock.Header.Number, err)
 	}
@@ -182,7 +123,7 @@ func (cr *CommitteeRetriever) CurrentState(forCommit bool) committee.State {
 			"retrieving the state from block %d", lastBlock.Header.Number, md.FinalStateIndex, md.CommitteeShiftAt, md.FinalStateIndex)
 		block := cr.Ledger.Block(uint64(md.FinalStateIndex))
 
-		md, err := committeeMetadataFromBlock(block)
+		md, err := CommitteeMetadataFromBlock(block)
 		if err != nil {
 			cr.Logger.Panicf("Failed extracting committee metadata from block %d: %v", block.Header.Number, err)
 		}
@@ -201,10 +142,65 @@ func (cr *CommitteeRetriever) CurrentState(forCommit bool) committee.State {
 // and the latest state of the committee.
 // In case the committee selection is disabled, it returns an empty slice.
 func (cr *CommitteeRetriever) CurrentCommittee() (committee.Nodes, error) {
+	cr.lock.RLock()
+	height := cr.latestHeight
+	cached := cr.latestCommittee
+	cr.lock.RUnlock()
+
+	if cr.Ledger.Height() == height {
+		cr.Logger.Debugf("Returning cached result for height %d: %v", height, cached)
+		return cached, nil
+	}
+
+	cr.lock.Lock()
+	defer cr.lock.Unlock()
+
+	// Backup ledger reference
+	realLedger := cr.Ledger
+
+	// Restore real ledger after we're done
+	defer func() {
+		cr.Ledger = realLedger
+	}()
+
+	height = realLedger.Height()
+
+	cr.Ledger = &frozenLedger{
+		height: height,
+		Ledger: realLedger,
+	}
+
+	cached, err := cr.currentCommittee()
+	if err != nil {
+		return nil, err
+	}
+
+	cr.latestCommittee = cached
+	cr.latestHeight = height
+
+	cr.Logger.Debugf("Caching result for height %d: %v", height, cached)
+
+	return cached, nil
+
+}
+
+type frozenLedger struct {
+	height uint64
+	Ledger
+}
+
+func (fl *frozenLedger) Height() uint64 {
+	return fl.height
+}
+
+// CurrentCommittee returns the current nodes of the committee,
+// and the latest state of the committee.
+// In case the committee selection is disabled, it returns an empty slice.
+func (cr *CommitteeRetriever) currentCommittee() (committee.Nodes, error) {
 	lastBlock := LastBlockFromLedgerOrPanic(cr.Ledger, cr.Logger)
 	lastConfigBlock := LastConfigBlockFromLedgerOrPanic(cr.Ledger, cr.Logger)
 	cr.Logger.Debugf("Requesting committee for block %d where the latest config block is %d", lastBlock.Header.Number+1, lastConfigBlock.Header.Number)
-	committeeMetadataOfLastBlock, err := committeeMetadataFromBlock(lastBlock)
+	committeeMetadataOfLastBlock, err := CommitteeMetadataFromBlock(lastBlock)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed extracting committee metadata from latest block")
 	}
@@ -238,7 +234,7 @@ func (cr *CommitteeRetriever) CurrentCommittee() (committee.Nodes, error) {
 
 	reconstructionSharesBlock := cr.Ledger.Block(uint64(committeeMetadataOfLastBlock.CommitteeShiftAt))
 
-	committeeMD, err := committeeMetadataFromBlock(reconstructionSharesBlock)
+	committeeMD, err := CommitteeMetadataFromBlock(reconstructionSharesBlock)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed extracting committee metadata from latest reconstruction share block")
 	}
@@ -382,7 +378,7 @@ func (cr *CommitteeRetriever) genesisCommittee(lastBlockIndex int64) (committee.
 func (cr *CommitteeRetriever) latestState(finalStateIndex int64) (committee.State, error) {
 	lastStateBlock := cr.Ledger.Block(uint64(finalStateIndex))
 
-	committeeMD, err := committeeMetadataFromBlock(lastStateBlock)
+	committeeMD, err := CommitteeMetadataFromBlock(lastStateBlock)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed extracting committee metadata from latest state block")
 	}
@@ -427,14 +423,14 @@ func (cr *CommitteeRetriever) disabled(config *smartbft.ConfigMetadata, nodeConf
 func CommitteeMetadataForProposal(
 	logger *flogging.FabricLogger,
 	commitment, newState []byte,
-	prevCommitteeMD *CommitteeMetadata,
+	prevCommitteeMD *types.CommitteeMetadata,
 	blockNum int64,
 	expectedCommitters int,
 	committeeMinimumLifespan uint32,
 	currentCommittee committee.Nodes,
 	id int32,
-) *CommitteeMetadata {
-	committeeMD := &CommitteeMetadata{}
+) *types.CommitteeMetadata {
+	committeeMD := &types.CommitteeMetadata{}
 
 	logger.Debugf("Computing metadata for block %d", blockNum)
 
@@ -448,6 +444,8 @@ func CommitteeMetadataForProposal(
 		committeeMD.GenesisConfigAt = blockNum - 1
 		logger.Debugf("This is the first committee metadata, setting genesis config to be %d", committeeMD.GenesisConfigAt)
 	}
+
+	committeeMD.CommitteeSize = int32(len(currentCommittee))
 
 	if prevCommitteeMD != nil {
 		prevStateSize = len(prevCommitteeMD.State)
@@ -470,7 +468,7 @@ func CommitteeMetadataForProposal(
 	}
 
 	// We are committing
-	if len(commitment) > 0 && committeeMD.shouldCommit(id, expectedCommitters, logger) {
+	if len(commitment) > 0 && committeeMD.ShouldCommit(id, expectedCommitters, logger) {
 		committeeMD.State = newState
 		committeeMD.Committers = append(committeeMD.Committers, id)
 		logger.Debugf("A commit has occurred, state has increased from %d to %d bytes", prevStateSize, len(committeeMD.State))

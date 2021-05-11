@@ -32,6 +32,10 @@ func (p *Policy) Evaluate(signatureSet []*cb.SignedData) error {
 	return p.Err
 }
 
+func (p *Policy) BFTEvaluate(signatureSet []*cb.SignedData, _ int) error {
+	return p.Err
+}
+
 // Manager is a mock implementation of the policies.Manager interface
 type Manager struct {
 	// Policy is returned as the output to GetPolicy if a Policy

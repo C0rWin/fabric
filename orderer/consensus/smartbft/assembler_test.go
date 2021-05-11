@@ -9,6 +9,8 @@ package smartbft_test
 import (
 	"testing"
 
+	types2 "github.com/hyperledger/fabric/orderer/consensus/smartbft/types"
+
 	committee "github.com/SmartBFT-Go/randomcommittees/pkg"
 
 	"sync/atomic"
@@ -197,7 +199,7 @@ func proposalFromRequests(verificationSeq, seq, lastConfigSeq uint64, lastBlockH
 
 	block.Metadata.Metadata[common.BlockMetadataIndex_SIGNATURES] = utils.MarshalOrPanic(&common.Metadata{
 		Value: utils.MarshalOrPanic(&common.OrdererBlockMetadata{
-			CommitteeMetadata: (&smartbft.CommitteeMetadata{GenesisConfigAt: int64(19)}).Marshal(),
+			CommitteeMetadata: (&types2.CommitteeMetadata{GenesisConfigAt: int64(19)}).Marshal(),
 			ConsenterMetadata: metadata,
 			LastConfig: &common.LastConfig{
 				Index: lastConfigSeq,

@@ -17,6 +17,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	types2 "github.com/hyperledger/fabric/orderer/consensus/smartbft/types"
+
 	"github.com/hyperledger/fabric/common/util"
 
 	smartbft "github.com/SmartBFT-Go/consensus/pkg/consensus"
@@ -180,8 +182,7 @@ func NewChain(
 		},
 		streamPuller: &BlocksStreamPuller{
 			Ledger:        support,
-			Logger:        flogging.MustGetLogger("orderer.consensus.smartbft.chain.puller").With(zap.String("channel", support.ChainID())),
-			StreamCreator: NewImpatientStream,
+			Logger:        logger,
 			Channel:       support.ChainID(),
 			RetryTimeout:  500 * time.Millisecond,
 			FetchTimeout:  time.Minute,
@@ -193,135 +194,20 @@ func NewChain(
 		},
 	}
 
+	c.streamPuller.OnBlockCommit = c.maybeAddedToCommittee
+	c.streamPuller.CommitteeSize = func() int {
+		return len(c.ct.CurrentCommittee())
+	}
+
 	// TODO setup heartbeat monitor with the right config
 	heartbeatTicker := time.NewTicker(1 * time.Second)
 	heartbeatTimeout := 10 * time.Second
 	heartbeatCount := uint64(5)
 
-	currentCommittee := c.ct.CurrentCommittee()
-
 	rtc := RuntimeConfig{
-		BFTConfig:              config,
-		isConfig:               false,
-		logger:                 logger,
-		id:                     selfID,
-		LastCommittedBlockHash: "",
-		RemoteNodes:            []cluster.RemoteNode{},
-		ID2Identities:          map[uint64][]byte{},
-		LastBlock:              lastBlock,
-		LastConfigBlock:        lastConfigBlock,
-		Nodes:                  []uint64{},
-		CommitteeMetadata:      &CommitteeMetadata{},
-		OnCommitteeChange: func(prevCommittee []int32, allNodes []uint64) {
-			currentCommittee := c.ct.CurrentCommittee()
-			c.Logger.Debugf("changing committee from [%v], to [%v]", prevCommittee, currentCommittee.IDs())
-			if c.consensus == nil {
-				c.Logger.Warn("initializing the chain, consensus instance is not ready yet, not need for committee change at that time")
-				return
-			}
-			err = committeeSelection.Initialize(int32(selfID), c.committeePrivateKey, c.ct.CurrentCommittee())
-			if err != nil {
-				logger.Panicf("Failed initializing committee selection library: %v", err)
-			}
-
-			requests, _ := c.consensus.Pool.NextRequests(math.MaxInt32, math.MaxUint64, false)
-			c.migrateTransactions(prevCommittee, currentCommittee.IDs(), requests)
-
-			if c.heartbeatMonitor != nil {
-				myRole, heartbeatSenders, heartbeatReceivers := setupHeartbeatMonitor(selfID, currentCommittee, allNodes)
-				hbm := NewHeartbeatMonitor(c.consensus.Comm.(MessageSender), heartbeatTicker.C, logger, heartbeatTimeout, heartbeatCount, myRole, heartbeatSenders, heartbeatReceivers)
-				c.heartbeatMonitor.Set(hbm)
-				hbm.Start()
-			}
-			committeeIdentifiers := currentCommittee.IDs()
-			logger.Debugf("Current committee: %v", committeeIdentifiers)
-			committeeIDs := make(map[uint64]struct{})
-			for _, id := range committeeIdentifiers {
-				committeeIDs[uint64(id)] = struct{}{}
-			}
-			prevCommitteeIDs := make(map[uint64]struct{})
-			for _, id := range prevCommittee {
-				prevCommitteeIDs[uint64(id)] = struct{}{}
-			}
-
-			c.streamPuller.Stop()
-			logger.Debugf("Stopping consensus before restarting to update references")
-			c.consensus.Stop()
-
-			//_, wasInCommittee := prevCommitteeIDs[selfID]
-			_, inCommittee := committeeIDs[selfID]
-			if inCommittee {
-				logger.Debugf("node is selected to be in current committee, committee members are %s", committeeIDs)
-				lastBlock := LastBlockFromLedgerOrPanic(support, logger)
-				latestMetadata, err := getViewMetadataFromBlock(lastBlock)
-				if err != nil {
-					c.Logger.Panicf("Failed extracting view metadata from ledger: %v", err)
-				}
-				logger.Debug("updating consensus metadata, last proposal and signatures")
-				c.consensus.Metadata = latestMetadata
-				proposal, signatures := c.lastPersistedProposalAndSignatures()
-				if proposal != nil {
-					c.consensus.LastProposal = *proposal
-					c.consensus.LastSignatures = signatures
-				}
-
-				logger.Debugf("Restarting consensus instance")
-				if err := c.consensus.Start(); err != nil {
-					logger.Panic(err.Error())
-				}
-				for _, req := range requests {
-					requestID := c.consensus.RequestInspector.RequestID(req)
-					logger.Debugf("resubmitting requests after restart %s", requestID)
-					err := c.consensus.SubmitRequest(req)
-					if err != nil {
-						logger.Panicf("failed to re-submit request after consensus re-start. error %s", err)
-					}
-				}
-				return
-			}
-			logger.Debugf("node wasn't selected to be in current committee, committee members are %v", committeeIDs)
-			consensusMD := &smartbft2.ConfigMetadata{}
-			if err := proto.Unmarshal(support.SharedConfig().ConsensusMetadata(), consensusMD); err != nil {
-				logger.Panicf(fmt.Sprintf("cannot unmarshal consensus metadata %s", err.Error()))
-			}
-			endpointsInCommittee := make(map[string]struct{})
-			for _, consenter := range consensusMD.Consenters {
-				if _, exists := committeeIDs[consenter.ConsenterId]; !exists {
-					logger.Debugf("%d %s is not in the committee", consenter.ConsenterId, consenter.Host)
-					continue
-				}
-				endpointsInCommittee[consenter.Host] = struct{}{}
-			}
-			endpoints, err := etcdraft.EndpointconfigFromFromSupport(support)
-			if err != nil {
-				logger.Panicf(fmt.Sprintf("cannot extract TLS CA certs and endpoint %s", err.Error()))
-			}
-			logger.Debugf("Endpoints in committee: %v", endpointsInCommittee)
-			if len(endpointsInCommittee) > 0 {
-				var filteredEndpoints []cluster.EndpointCriteria
-				var filteredEndpointsURIs []string
-				for _, ep := range endpoints {
-					host, _, err := net.SplitHostPort(ep.Endpoint)
-					if err != nil {
-						logger.Warnf("Invalid host port string %s: %v", ep.Endpoint, err)
-						continue
-					}
-					if _, exists := endpointsInCommittee[host]; !exists {
-						continue
-					}
-					filteredEndpoints = append(filteredEndpoints, ep)
-					filteredEndpointsURIs = append(filteredEndpointsURIs, ep.Endpoint)
-				}
-				endpoints = filteredEndpoints
-				logger.Debugf("Filtering out endpoints of nodes not in the committee, remaining endpoints: %v", filteredEndpointsURIs)
-			} else {
-				logger.Debugf("Endpoints and consenter endpoints are disjoint, using the endpoints without filtering by committee")
-			}
-			c.streamPuller.Initialize(endpoints)
-			go c.streamPuller.ContinuouslyPullBlocks()
-		},
-		committeeMinimumLifespan: 0,
-		changesCommittee:         false,
+		id:                selfID,
+		logger:            logger,
+		OnCommitteeChange: c.onCommitteeChange,
 	}
 	rtc, err = rtc.BlockCommitted(lastConfigBlock)
 	if err != nil {
@@ -333,6 +219,8 @@ func NewChain(
 	}
 
 	c.RuntimeConfig.Store(rtc)
+
+	currentCommittee := c.ct.CurrentCommittee()
 
 	if !committeeDisabled && committeeHasPublicKeysDefined(currentCommittee) {
 		err = committeeSelection.Initialize(int32(selfID), privateKey, currentCommittee)
@@ -515,6 +403,9 @@ func buildVerifier(
 		},
 		Ledger: support,
 		VerifyReconShares: func(reconShares []committee.ReconShare) error {
+			if c.committeeDisabled {
+				return nil
+			}
 			for _, rcs := range reconShares {
 				cs := c.committeeSelection(nonMember)
 				if err := cs.VerifyReconShare(rcs); err != nil {
@@ -537,6 +428,10 @@ func (c *BFTChain) isInCommittee() bool {
 }
 
 func (c *BFTChain) createReconShares() []committee.ReconShare {
+	if c.committeeDisabled {
+		c.Logger.Debugf("Committee selection is disabled")
+		return nil
+	}
 	if !c.isInCommittee() {
 		c.Logger.Debugf("Not in committee, will not send ReconShares")
 		return nil
@@ -554,6 +449,54 @@ func (c *BFTChain) createReconShares() []committee.ReconShare {
 	c.Logger.Debugf("Created %d ReconShares at last block %d for state with digest %s",
 		len(feedback.ReconShares), lastBlock.Header.Number, stateDigest)
 	return feedback.ReconShares
+}
+
+func (c *BFTChain) maybeAddedToCommittee(block *common.Block) {
+	cm, err := types2.CommitteeMetadataFromBlock(block)
+	if err != nil {
+		c.Logger.Panicf("Failed extracting committee metadata from block: %v", err)
+	}
+
+	prevRTC := c.RuntimeConfig.Load().(RuntimeConfig)
+	newRTC, err := prevRTC.BlockCommitted(block)
+	if err != nil {
+		c.Logger.Errorf("Failed constructing RuntimeConfig from block %d, halting chain", block.Header.Number)
+		c.Halt()
+	}
+	c.RuntimeConfig.Store(newRTC)
+	if utils.IsConfigBlock(block) {
+		c.Comm.Configure(c.Channel, newRTC.RemoteNodes)
+	}
+
+	committeeChanged := cm != nil && cm.CommitteeShiftAt == int64(block.Header.Number)
+
+	if !committeeChanged {
+		return
+	}
+
+	if !c.isInCommittee() {
+		committee := c.ct.CurrentCommittee().IDs()
+		c.Logger.Debugf("Current committee: %v", committee)
+		committeeIDs := make(map[uint64]struct{})
+		for _, id := range committee {
+			committeeIDs[uint64(id)] = struct{}{}
+		}
+
+		lastBlock := LastBlockFromLedgerOrPanic(c.support, c.Logger)
+		c.streamPuller.Initialize(c.computeEndpoints(committeeIDs), lastBlock)
+		return
+	}
+
+	c.Logger.Infof("We were added to the committee")
+	c.streamPuller.Stop()
+	c.updateConsensusInstance()
+	c.consensus.WALInitialContent = nil
+
+	c.Logger.Infof("Starting consensus")
+	err = c.consensus.Start()
+	if err != nil {
+		c.Logger.Errorf("Failed starting consensus: %v", err)
+	}
 }
 
 func (c *BFTChain) verifyCommitment(block *common.Block) error {
@@ -631,7 +574,7 @@ func (c *BFTChain) verifyCommitment(block *common.Block) error {
 
 	expected := committeeMD.Marshal()
 	if !bytes.Equal(ordererMDFromBlock.CommitteeMetadata, expected) {
-		gotCommitteeMD := &CommitteeMetadata{}
+		gotCommitteeMD := &types2.CommitteeMetadata{}
 		gotCommitteeMD.Unmarshal(ordererMDFromBlock.CommitteeMetadata)
 
 		c.Logger.Warnf("Expected committee metadata \n%+v but got \n%+v", committeeMD, gotCommitteeMD)
@@ -664,11 +607,139 @@ func (c *BFTChain) committeeSelection(isMember committeeInstanceType) committee.
 	if err != nil {
 		c.Logger.Panicf("Failed initializing committee after commit: %v", err)
 	}
-
 	return committeeSelection
 }
 
-func (c *BFTChain) migrateTransactions(prevCommittee, nextCommittee []int32, requests [][]byte) {
+func (c *BFTChain) onCommitteeChange(prevCommittee []int32, allNodes []uint64) {
+	if c.committeeDisabled {
+		c.Logger.Debugf("Committee selection is disabled")
+		return
+	}
+
+	if c.consensus == nil {
+		c.Logger.Warn("initializing the chain, consensus instance is not ready yet, not need for committee change at that time")
+		return
+	}
+
+	currentCommittee := c.ct.CurrentCommittee()
+	c.Logger.Debugf("changing committee from [%v], to [%v]", prevCommittee, currentCommittee.IDs())
+
+	c.migrateTransactions(prevCommittee, currentCommittee.IDs())
+
+	if c.heartbeatMonitor != nil {
+		//myRole, heartbeatSenders, heartbeatReceivers := setupHeartbeatMonitor(uint64(selfID), currentCommittee, allNodes)
+		//hbm := NewHeartbeatMonitor(c.consensus.Comm.(MessageSender), heartbeatTicker.C, c.Logger, heartbeatTimeout, heartbeatCount, myRole, heartbeatSenders, heartbeatReceivers)
+		//c.heartbeatMonitor.Set(hbm)
+		//hbm.Start()
+	}
+	committeeIdentifiers := currentCommittee.IDs()
+	c.Logger.Debugf("Current committee: %v", committeeIdentifiers)
+	committeeIDs := make(map[uint64]struct{})
+	for _, id := range committeeIdentifiers {
+		committeeIDs[uint64(id)] = struct{}{}
+	}
+
+	selfID := int32(c.Config.SelfID)
+	_, inCommittee := committeeIDs[uint64(selfID)]
+
+	if inCommittee {
+		c.Logger.Debugf("node is selected to be in current committee, committee members are %s", committeeIDs)
+		c.updateConsensusInstance()
+		return
+	}
+	c.Logger.Debugf("node wasn't selected to be in current committee, committee members are %v", committeeIDs)
+}
+
+func (c *BFTChain) launchPullerIfNeeded() {
+	c.streamPuller.Stop()
+
+	if c.isInCommittee() {
+		return
+	}
+
+	committeeIDs := make(map[uint64]struct{})
+	for _, id := range c.ct.CurrentCommittee().IDs() {
+		committeeIDs[uint64(id)] = struct{}{}
+	}
+
+	lastBlock := LastBlockFromLedgerOrPanic(c.support, c.Logger)
+
+	c.streamPuller.Initialize(c.computeEndpoints(committeeIDs), lastBlock)
+	go func() {
+		c.Logger.Debugf("Waiting for ")
+		for c.consensus.GetLeaderID() != 0 {
+			time.Sleep(time.Millisecond * 100)
+		}
+		c.streamPuller.ContinuouslyPullBlocks()
+	}()
+}
+
+func (c *BFTChain) committeeNodes() []uint64 {
+	var res []uint64
+	for _, n := range c.ct.CurrentCommittee().IDs() {
+		res = append(res, uint64(n))
+	}
+	return res
+}
+
+func (c *BFTChain) updateConsensusInstance() {
+	lastBlock := LastBlockFromLedgerOrPanic(c.support, c.Logger)
+	latestMetadata, err := getViewMetadataFromBlock(lastBlock)
+	if err != nil {
+		c.Logger.Panicf("Failed extracting view metadata from ledger: %v", err)
+	}
+	c.Logger.Debug("updating consensus metadata, last proposal and signatures")
+	c.consensus.Metadata = latestMetadata
+	proposal, signatures := c.lastPersistedProposalAndSignatures()
+	if proposal != nil {
+		c.consensus.LastProposal = *proposal
+		c.consensus.LastSignatures = signatures
+	}
+}
+
+func (c *BFTChain) computeEndpoints(committeeIDs map[uint64]struct{}) []cluster.EndpointCriteria {
+	consensusMD := &smartbft2.ConfigMetadata{}
+	if err := proto.Unmarshal(c.support.SharedConfig().ConsensusMetadata(), consensusMD); err != nil {
+		c.Logger.Panicf(fmt.Sprintf("cannot unmarshal consensus metadata %s", err.Error()))
+	}
+	endpointsInCommittee := make(map[string]struct{})
+	for _, consenter := range consensusMD.Consenters {
+		if _, exists := committeeIDs[consenter.ConsenterId]; !exists {
+			c.Logger.Debugf("%d %s is not in the committee", consenter.ConsenterId, consenter.Host)
+			continue
+		}
+		endpointsInCommittee[consenter.Host] = struct{}{}
+	}
+	endpoints, err := etcdraft.EndpointconfigFromFromSupport(c.support)
+	if err != nil {
+		c.Logger.Panicf(fmt.Sprintf("cannot extract TLS CA certs and endpoint %s", err.Error()))
+	}
+	c.Logger.Debugf("Endpoints in committee: %v", endpointsInCommittee)
+	if len(endpointsInCommittee) > 0 {
+		var filteredEndpoints []cluster.EndpointCriteria
+		var filteredEndpointsURIs []string
+		for _, ep := range endpoints {
+			host, _, err := net.SplitHostPort(ep.Endpoint)
+			if err != nil {
+				c.Logger.Warnf("Invalid host port string %s: %v", ep.Endpoint, err)
+				continue
+			}
+			if _, exists := endpointsInCommittee[host]; !exists {
+				continue
+			}
+			filteredEndpoints = append(filteredEndpoints, ep)
+			filteredEndpointsURIs = append(filteredEndpointsURIs, ep.Endpoint)
+		}
+		endpoints = filteredEndpoints
+		c.Logger.Debugf("Filtering out endpoints of nodes not in the committee, remaining endpoints: %v", filteredEndpointsURIs)
+	} else {
+		c.Logger.Debugf("Endpoints and consenter endpoints are disjoint, using the endpoints without filtering by committee")
+	}
+
+	return endpoints
+}
+
+func (c *BFTChain) migrateTransactions(prevCommittee, nextCommittee []int32) {
 	prev := make(map[int32]struct{})
 	for _, id := range prevCommittee {
 		prev[id] = struct{}{}
@@ -691,6 +762,8 @@ func (c *BFTChain) migrateTransactions(prevCommittee, nextCommittee []int32, req
 		c.Logger.Debugf("Consensus hasn't been initialized yet")
 		return
 	}
+
+	requests, _ := c.consensus.Pool.NextRequests(math.MaxInt32, math.MaxUint64, false)
 
 	c.Logger.Infof("Migrating transactions from %v to %v", prevCommittee, nextCommittee)
 
@@ -717,8 +790,9 @@ func (c *BFTChain) HandleMessage(sender uint64, m *smartbftprotos.Message, metad
 			return
 		}
 
-		if c.consensus.GetLeaderID() != sender {
-			c.Logger.Warnf("Received pre-prepare from %d but it was not the leader", sender)
+		leader := c.consensus.GetLeaderID()
+		if leader != sender {
+			c.Logger.Warnf("Received pre-prepare from %d but it was not the leader, the leader is %d", sender, leader)
 			return
 		}
 
@@ -872,7 +946,7 @@ func (c *BFTChain) maybeCommit() ([]byte, []byte) {
 
 	expectedCommitters := (len(currentCommittee)-1)/3 + 1
 
-	if !rtc.CommitteeMetadata.shouldCommit(int32(rtc.id), expectedCommitters, c.Logger) {
+	if !rtc.CommitteeMetadata.ShouldCommit(int32(rtc.id), expectedCommitters, c.Logger) {
 		return nil, nil
 	}
 
@@ -1043,12 +1117,28 @@ func (c *BFTChain) updateRuntimeConfig(block *common.Block) types.Reconfig {
 		c.Comm.Configure(c.Channel, newRTC.RemoteNodes)
 	}
 
-	membershipDidNotChange := reflect.DeepEqual(newRTC.Nodes, prevRTC.Nodes)
+	cm, err := types2.CommitteeMetadataFromBlock(block)
+	if err != nil {
+		c.Logger.Panicf("Failed extracting committee metadata from block: %v", err)
+	}
+
+	committeeChanged := cm != nil && cm.CommitteeShiftAt == int64(block.Header.Number)
+
+	c.launchPullerIfNeeded()
+
+	currentNodes := c.committeeNodes()
+
+	membershipDidNotChange := !committeeChanged
+
+	if c.committeeDisabled {
+		membershipDidNotChange = reflect.DeepEqual(newRTC.Nodes, prevRTC.Nodes)
+	}
+
 	configDidNotChange := reflect.DeepEqual(newRTC.BFTConfig, prevRTC.BFTConfig)
 	noChangeDetected := membershipDidNotChange && configDidNotChange
 	return types.Reconfig{
 		InLatestDecision: !noChangeDetected,
-		CurrentNodes:     newRTC.Nodes,
+		CurrentNodes:     currentNodes,
 		CurrentConfig:    newRTC.BFTConfig,
 	}
 }
@@ -1103,8 +1193,17 @@ func (c *BFTChain) Errored() <-chan struct{} {
 }
 
 func (c *BFTChain) Start() {
-	c.consensus.Start()
+	c.Logger.Debugf("Syncing at startup")
+	c.consensus.Synchronizer.Sync()
+	c.Logger.Debugf("Finished startup sync")
+
 	c.heartbeatMonitor.Start()
+
+	if !c.isInCommittee() {
+		c.launchPullerIfNeeded()
+		return
+	}
+	c.consensus.Start()
 }
 
 func (c *BFTChain) Halt() {

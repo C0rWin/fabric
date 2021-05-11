@@ -1103,7 +1103,7 @@ func TestBlockPullerFromConfigBlockGreenPath(t *testing.T) {
 
 func TestNoopBlockVerifier(t *testing.T) {
 	v := &cluster.NoopBlockVerifier{}
-	assert.Nil(t, v.VerifyBlockSignature(nil, nil))
+	assert.Nil(t, v.VerifyBlockSignature(nil, nil, 0))
 }
 
 func injectGlobalOrdererEndpoint(t *testing.T, block *common.Block, endpoint string) {

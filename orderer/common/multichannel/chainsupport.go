@@ -15,6 +15,7 @@ import (
 	"github.com/hyperledger/fabric/orderer/common/blockcutter"
 	"github.com/hyperledger/fabric/orderer/common/msgprocessor"
 	"github.com/hyperledger/fabric/orderer/consensus"
+	"github.com/hyperledger/fabric/orderer/consensus/smartbft/types"
 	cb "github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/orderer"
 	"github.com/hyperledger/fabric/protos/orderer/smartbft"
@@ -30,6 +31,7 @@ type ChainSupport struct {
 	consensus.Chain
 	cutter blockcutter.Receiver
 	crypto.LocalSigner
+	CommitteeSizeFetcher func() int
 }
 
 func newChainSupport(
@@ -160,13 +162,25 @@ func (cs *ChainSupport) Append(block *cb.Block) error {
 	return cs.ledgerResources.ReadWriter.Append(block)
 }
 
+func (cs *ChainSupport) NodeCountForBlock(seq uint64) int {
+	if seq <= 1 {
+		return 0
+	}
+
+	block := blockledger.GetBlock(cs.support, seq-1)
+	if md, _ := types.CommitteeMetadataFromBlock(block); md != nil {
+		return int(md.CommitteeSize)
+	}
+	return 0
+}
+
 // VerifyBlockSignature verifies a signature of a block.
 // It has an optional argument of a configuration envelope
 // which would make the block verification to use validation rules
 // based on the given configuration in the ConfigEnvelope.
 // If the config envelope passed is nil, then the validation rules used
 // are the ones that were applied at commit of previous blocks.
-func (cs *ChainSupport) VerifyBlockSignature(sd []*cb.SignedData, envelope *cb.ConfigEnvelope) error {
+func (cs *ChainSupport) VerifyBlockSignature(sd []*cb.SignedData, envelope *cb.ConfigEnvelope, committeeSize int) error {
 	policyMgr := cs.PolicyManager()
 	// If the envelope passed isn't nil, we should use a different policy manager.
 	if envelope != nil {
@@ -180,7 +194,7 @@ func (cs *ChainSupport) VerifyBlockSignature(sd []*cb.SignedData, envelope *cb.C
 	if !exists {
 		return errors.Errorf("policy %s wasn't found", policies.BlockValidation)
 	}
-	err := policy.Evaluate(sd)
+	err := policy.(policies.BFTPolicy).BFTEvaluate(sd, committeeSize)
 	if err != nil {
 		return errors.Wrap(err, "block verification failed")
 	}

@@ -80,6 +80,10 @@ func (m *Policy) Evaluate(signatureSet []*common.SignedData) error {
 	return identity.Verify(signatureSet[0].Data, signatureSet[0].Signature)
 }
 
+func (m *Policy) BFTEvaluate(signatureSet []*common.SignedData, _ int) error {
+	return m.Evaluate(signatureSet)
+}
+
 type DeserializersManager struct {
 	LocalDeserializer    msp.IdentityDeserializer
 	ChannelDeserializers map[string]msp.IdentityDeserializer
