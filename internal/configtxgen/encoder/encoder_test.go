@@ -453,21 +453,22 @@ var _ = Describe("Encoder", func() {
 				conf.OrdererType = "smartbft"
 				conf.SmartBFT = &smartbft.ConfigMetadata{
 					Options: &smartbft.Options{
-						RequestBatchMaxCount:      uint64(100),
-						RequestBatchMaxBytes:      uint64(1000000),
-						RequestBatchMaxInterval:   "50ms",
-						IncomingMessageBufferSize: uint64(200),
-						RequestPoolSize:           uint64(400),
-						RequestForwardTimeout:     "2s",
-						RequestComplainTimeout:    "10s",
-						RequestAutoRemoveTimeout:  "1m",
-						ViewChangeResendInterval:  "5s",
-						ViewChangeTimeout:         "20s",
-						LeaderHeartbeatTimeout:    "30s",
-						LeaderHeartbeatCount:      uint64(10),
-						CollectTimeout:            "1m",
-						SyncOnStart:               false,
-						SpeedUpViewChange:         false,
+						RequestBatchMaxCount:        uint64(100),
+						RequestBatchMaxBytes:        uint64(1000000),
+						RequestBatchMaxInterval:     "50ms",
+						IncomingMessageBufferSize:   uint64(200),
+						RequestPoolSize:             uint64(400),
+						RequestForwardTimeout:       "2s",
+						RequestComplainTimeout:      "10s",
+						RequestAutoRemoveTimeout:    "1m",
+						ViewChangeResendInterval:    "5s",
+						ViewChangeTimeout:           "20s",
+						LeaderHeartbeatTimeout:      "30s",
+						LeaderHeartbeatCount:        uint64(10),
+						CollectTimeout:              "1m",
+						SyncOnStart:                 false,
+						SpeedUpViewChange:           false,
+						TimestampAcceptanceInterval: "5m",
 					},
 				}
 			})
@@ -498,6 +499,7 @@ var _ = Describe("Encoder", func() {
 				Expect(metadata.Options.CollectTimeout).To(Equal("1m"))
 				Expect(metadata.Options.SyncOnStart).To(Equal(false))
 				Expect(metadata.Options.SpeedUpViewChange).To(Equal(false))
+				Expect(metadata.Options.TimestampAcceptanceInterval).To(Equal("5m"))
 			})
 
 			Context("when the smartbft configuration is bad", func() {

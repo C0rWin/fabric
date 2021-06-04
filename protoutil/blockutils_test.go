@@ -41,7 +41,7 @@ func TestNewBlock(t *testing.T) {
 		Number       int64
 		PreviousHash []byte
 		DataHash     []byte
-		Timestamp    uint64
+		Timestamp    int64
 	}{
 		Number:       0,
 		DataHash:     protoutil.BlockDataHash(data),

@@ -393,17 +393,18 @@ type nodeConfig struct {
 // RuntimeConfig defines the configuration of the consensus
 // that is related to runtime.
 type RuntimeConfig struct {
-	BFTConfig              types.Configuration
-	isConfig               bool
-	logger                 *flogging.FabricLogger
-	id                     uint64
-	LastCommittedBlockHash string
-	RemoteNodes            []cluster.RemoteNode
-	ID2Identities          NodeIdentitiesByID
-	LastBlock              *common.Block
-	LastConfigBlock        *common.Block
-	Nodes                  []uint64
-	CryptoProvider         bccsp.BCCSP
+	BFTConfig                   types.Configuration
+	isConfig                    bool
+	logger                      *flogging.FabricLogger
+	id                          uint64
+	LastCommittedBlockHash      string
+	RemoteNodes                 []cluster.RemoteNode
+	ID2Identities               NodeIdentitiesByID
+	LastBlock                   *common.Block
+	LastConfigBlock             *common.Block
+	Nodes                       []uint64
+	CryptoProvider              bccsp.BCCSP
+	TimestampAcceptanceInterval time.Duration
 }
 
 func (rtc RuntimeConfig) BlockCommitted(block *common.Block) (RuntimeConfig, error) {
@@ -411,16 +412,17 @@ func (rtc RuntimeConfig) BlockCommitted(block *common.Block) (RuntimeConfig, err
 		return rtc.configBlockCommitted(block)
 	}
 	return RuntimeConfig{
-		BFTConfig:              rtc.BFTConfig,
-		id:                     rtc.id,
-		logger:                 rtc.logger,
-		LastCommittedBlockHash: hex.EncodeToString(protoutil.BlockHeaderHash(block.Header)),
-		Nodes:                  rtc.Nodes,
-		ID2Identities:          rtc.ID2Identities,
-		RemoteNodes:            rtc.RemoteNodes,
-		LastBlock:              block,
-		LastConfigBlock:        rtc.LastConfigBlock,
-		CryptoProvider:         rtc.CryptoProvider,
+		BFTConfig:                   rtc.BFTConfig,
+		id:                          rtc.id,
+		logger:                      rtc.logger,
+		LastCommittedBlockHash:      hex.EncodeToString(protoutil.BlockHeaderHash(block.Header)),
+		Nodes:                       rtc.Nodes,
+		ID2Identities:               rtc.ID2Identities,
+		RemoteNodes:                 rtc.RemoteNodes,
+		LastBlock:                   block,
+		LastConfigBlock:             rtc.LastConfigBlock,
+		CryptoProvider:              rtc.CryptoProvider,
+		TimestampAcceptanceInterval: rtc.TimestampAcceptanceInterval,
 	}, nil
 }
 
@@ -430,51 +432,61 @@ func (rtc RuntimeConfig) configBlockCommitted(block *common.Block) (RuntimeConfi
 		return rtc, errors.Wrap(err, "remote nodes cannot be computed, rejecting config block")
 	}
 
-	bftConfig, err := configBlockToBFTConfig(rtc.id, block, rtc.CryptoProvider)
+	options, err := extractOptions(block, rtc.CryptoProvider)
 	if err != nil {
 		return RuntimeConfig{}, err
 	}
 
+	bftConfig, err := configFromMetadataOptions(rtc.id, options)
+	if err != nil {
+		return RuntimeConfig{}, err
+	}
+
+	var timestampAcceptanceInterval time.Duration
+	if timestampAcceptanceInterval, err = time.ParseDuration(options.TimestampAcceptanceInterval); err != nil {
+		return RuntimeConfig{}, errors.Wrap(err, "bad config metadata option TimestampAcceptanceInterval")
+	}
+
 	return RuntimeConfig{
-		BFTConfig:              bftConfig,
-		isConfig:               true,
-		id:                     rtc.id,
-		logger:                 rtc.logger,
-		LastCommittedBlockHash: hex.EncodeToString(protoutil.BlockHeaderHash(block.Header)),
-		Nodes:                  nodeConf.nodeIDs,
-		ID2Identities:          nodeConf.id2Identities,
-		RemoteNodes:            nodeConf.remoteNodes,
-		LastBlock:              block,
-		LastConfigBlock:        block,
-		CryptoProvider:         rtc.CryptoProvider,
+		BFTConfig:                   bftConfig,
+		isConfig:                    true,
+		id:                          rtc.id,
+		logger:                      rtc.logger,
+		LastCommittedBlockHash:      hex.EncodeToString(protoutil.BlockHeaderHash(block.Header)),
+		Nodes:                       nodeConf.nodeIDs,
+		ID2Identities:               nodeConf.id2Identities,
+		RemoteNodes:                 nodeConf.remoteNodes,
+		LastBlock:                   block,
+		LastConfigBlock:             block,
+		CryptoProvider:              rtc.CryptoProvider,
+		TimestampAcceptanceInterval: timestampAcceptanceInterval,
 	}, nil
 }
 
-func configBlockToBFTConfig(selfID uint64, block *common.Block, cryptoProvider bccsp.BCCSP) (types.Configuration, error) {
+func extractOptions(block *common.Block, cryptoProvider bccsp.BCCSP) (*smartbft.Options, error) {
 	if block == nil || block.Data == nil || len(block.Data.Data) == 0 {
-		return types.Configuration{}, errors.New("empty block")
+		return nil, errors.New("empty block")
 	}
 
 	env, err := protoutil.UnmarshalEnvelope(block.Data.Data[0])
 	if err != nil {
-		return types.Configuration{}, err
+		return nil, err
 	}
 	bundle, err := channelconfig.NewBundleFromEnvelope(env, cryptoProvider)
 	if err != nil {
-		return types.Configuration{}, err
+		return nil, err
 	}
 
 	oc, ok := bundle.OrdererConfig()
 	if !ok {
-		return types.Configuration{}, errors.New("no orderer config")
+		return nil, errors.New("no orderer config")
 	}
 
 	consensusMD := &smartbft.ConfigMetadata{}
 	if err := proto.Unmarshal(oc.ConsensusMetadata(), consensusMD); err != nil {
-		return types.Configuration{}, err
+		return nil, err
 	}
-
-	return configFromMetadataOptions(selfID, consensusMD.Options)
+	return consensusMD.Options, nil
 }
 
 func isConfigBlock(block *common.Block) bool {

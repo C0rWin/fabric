@@ -260,6 +260,7 @@ func TestRuntimeConfig(t *testing.T) {
 	assert.Equal(t, prevRTC.RemoteNodes, newRTC.RemoteNodes)
 	assert.Equal(t, prevRTC.LastConfigBlock, newRTC.LastConfigBlock)
 	assert.Equal(t, prevRTC.ID2Identities, newRTC.ID2Identities)
+	assert.Equal(t, prevRTC.TimestampAcceptanceInterval, newRTC.TimestampAcceptanceInterval)
 	assert.NotEqual(t, prevRTC.LastBlock, newRTC.LastBlock)
 	assert.NotEqual(t, prevRTC.LastCommittedBlockHash, newRTC.LastCommittedBlockHash)
 
@@ -280,6 +281,7 @@ func TestRuntimeConfig(t *testing.T) {
 
 	assert.Equal(t, prevRTC.id, newRTC.id)
 	assert.Equal(t, prevRTC.logger, newRTC.logger)
+	assert.Equal(t, prevRTC.TimestampAcceptanceInterval, newRTC.TimestampAcceptanceInterval)
 	assert.NotEqual(t, prevRTC.Nodes, newRTC.Nodes)
 	assert.NotEqual(t, prevRTC.RemoteNodes, newRTC.RemoteNodes)
 	assert.NotEqual(t, prevRTC.LastConfigBlock, newRTC.LastConfigBlock)

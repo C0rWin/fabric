@@ -101,8 +101,7 @@ func (v *Verifier) VerifyProposal(proposal types.Proposal) ([]types.RequestInfo,
 		return nil, err
 	}
 
-	timeWindow := 30 * time.Second // Externalize configuration
-	if err := verifyTimestamp(block, timeWindow); err != nil {
+	if err := verifyTimestamp(block, rtc.TimestampAcceptanceInterval); err != nil {
 		return nil, err
 	}
 
@@ -245,11 +244,11 @@ func verifyHashChain(block *common.Block, prevHeaderHash string) error {
 	return nil
 }
 
-func verifyTimestamp(block *common.Block, timeWindow time.Duration) error {
+func verifyTimestamp(block *common.Block, timestampAcceptanceInterval time.Duration) error {
 	timestamp := time.Unix(0, int64(block.Header.Timestamp))
 
 	now := time.Now().UTC()
-	if timestamp.Before(now.Add(-timeWindow)) || timestamp.After(now.Add(timeWindow)) {
+	if timestamp.Before(now.Add(-timestampAcceptanceInterval)) || timestamp.After(now.Add(timestampAcceptanceInterval)) {
 		return errors.Errorf("blocks timestamp is outside of the time window, timestamp=%v", timestamp)
 	}
 	return nil
