@@ -130,7 +130,7 @@ func TestReplicateChainsFailures(t *testing.T) {
 			name: "hash chain mismatch",
 			expectedPanic: "Failed pulling system channel: " +
 				"block header mismatch on sequence 11, " +
-				"expected 9cd61b7e9a5ea2d128cc877e5304e7205888175a8032d40b97db7412dca41d9e, got 010203",
+				"expected 353c541609112486acf1d630059503740a46eb0d465e479e066fef108c61613a, got 010203",
 			latestBlockSeqInOrderer: 21,
 			mutateBlocks: func(systemChannelBlocks []*common.Block) {
 				systemChannelBlocks[len(systemChannelBlocks)/2].Header.PreviousHash = []byte{1, 2, 3}
@@ -139,8 +139,8 @@ func TestReplicateChainsFailures(t *testing.T) {
 		{
 			name: "last pulled block doesn't match the boot block",
 			expectedPanic: "Block header mismatch on last system channel block," +
-				" expected 8ec93b2ef5ffdc302f0c0e24611be04ad2b17b099a1aeafd7cfb76a95923f146," +
-				" got e428decfc78f8e4c97b26da9c16f9d0b73f886dafa80477a0dd9bac7eb14fe7a",
+				" expected 662e97fc26fcae380f0118a891b1b9621229898845f280d3759b3b239bf89843," +
+				" got c268f5d345fe68a1cdb40b573bd09a9aa6dc316c509d3044dcc266342fd25c6a",
 			latestBlockSeqInOrderer: 21,
 			mutateBlocks: func(systemChannelBlocks []*common.Block) {
 				systemChannelBlocks[21].Header.DataHash = nil
@@ -1465,7 +1465,7 @@ func TestChannels(t *testing.T) {
 			},
 			assertion: func(t *testing.T, ci *cluster.ChainInspector) {
 				panicValue := "System channel pulled doesn't match the boot last config block:" +
-					" block [2]'s hash (bc4ef5cc8a61ac0747cc82df58bac9ad3278622c1cfc7a119b9b1068e422c9f1)" +
+					" block [2]'s hash (858309677ebc1ad87d97ca60f5dc6f57a9a916bae515ac56707df79415f317b9)" +
 					" mismatches block [3]'s prev block hash ()"
 				require.PanicsWithValue(t, panicValue, func() {
 					ci.Channels()
@@ -1480,7 +1480,7 @@ func TestChannels(t *testing.T) {
 			},
 			assertion: func(t *testing.T, ci *cluster.ChainInspector) {
 				panicValue := "Claimed previous hash of block [2] is  but actual previous " +
-					"hash is 920faeb0bd8a02b3f2553247359fb3b684819c75c6e5487bc7eed632841ddc5f"
+					"hash is caa170e386ba16870367d888815c7b6eb68db7c6fc1604283072c20365e68540"
 				require.PanicsWithValue(t, panicValue, func() {
 					ci.Channels()
 				})

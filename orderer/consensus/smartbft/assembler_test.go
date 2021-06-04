@@ -9,6 +9,7 @@ package smartbft_test
 import (
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	"github.com/hyperledger/fabric-protos-go/common"
@@ -17,6 +18,7 @@ import (
 	"github.com/hyperledger/fabric/orderer/consensus/smartbft/mocks"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/tkuchiki/faketime"
 )
 
 var (
@@ -33,6 +35,11 @@ func TestAssembler(t *testing.T) {
 	ledger.On("Height").Return(uint64(20))
 	ledger.On("Block", uint64(19)).Return(lastBlock)
 	ledger.On("Block", uint64(10)).Return(lastConfigBlock)
+
+	currentTime := time.Now()
+	f := faketime.NewFaketimeWithTime(currentTime)
+	defer f.Undo()
+	f.Do()
 
 	for _, testCase := range []struct {
 		name              string
@@ -53,19 +60,19 @@ func TestAssembler(t *testing.T) {
 		{
 			name:              "Config transaction is first in the batch",
 			requests:          [][]byte{configTx, nonConfigTx},
-			expectedProposal:  proposalFromRequests(10, 20, 20, lastHash, []byte("metadata"), configTx),
+			expectedProposal:  proposalFromRequests(10, 20, 20, lastHash, []byte("metadata"), currentTime, configTx),
 			expectedRemainder: [][]byte{nonConfigTx},
 		},
 		{
 			name:              "Config transaction is in the middle of the batch",
 			requests:          [][]byte{nonConfigTx, configTx, nonConfigTx},
-			expectedProposal:  proposalFromRequests(10, 20, 10, lastHash, []byte("metadata"), nonConfigTx),
+			expectedProposal:  proposalFromRequests(10, 20, 10, lastHash, []byte("metadata"), currentTime, nonConfigTx),
 			expectedRemainder: [][]byte{configTx, nonConfigTx},
 		},
 		{
 			name:              "Config transaction is at the end of the batch",
 			requests:          [][]byte{nonConfigTx, nonConfigTx, configTx},
-			expectedProposal:  proposalFromRequests(10, 20, 10, lastHash, []byte("metadata"), nonConfigTx, nonConfigTx),
+			expectedProposal:  proposalFromRequests(10, 20, 10, lastHash, []byte("metadata"), currentTime, nonConfigTx, nonConfigTx),
 			expectedRemainder: [][]byte{configTx},
 		},
 	} {
@@ -155,11 +162,12 @@ func makeConfigBlock(seq uint64) *common.Block {
 	}
 }
 
-func proposalFromRequests(verificationSeq, seq, lastConfigSeq uint64, lastBlockHash, metadata []byte, requests ...[]byte) types.Proposal {
+func proposalFromRequests(verificationSeq, seq, lastConfigSeq uint64, lastBlockHash, metadata []byte, t time.Time, requests ...[]byte) types.Proposal {
 	block := protoutil.NewBlock(seq, nil)
 	block.Data = &common.BlockData{Data: requests}
 	block.Header.DataHash = protoutil.BlockDataHash(block.Data)
 	block.Header.PreviousHash = lastBlockHash
+	block.Header.Timestamp = uint64(t.UnixNano())
 	block.Metadata.Metadata[common.BlockMetadataIndex_LAST_CONFIG] = protoutil.MarshalOrPanic(&common.Metadata{
 		Value: protoutil.MarshalOrPanic(&common.LastConfig{Index: lastConfigSeq}),
 	})

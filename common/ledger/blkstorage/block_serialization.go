@@ -44,10 +44,21 @@ func serializeBlock(block *common.Block) ([]byte, *serializedBlockInfo, error) {
 }
 
 func deserializeBlock(serializedBlockBytes []byte) (*common.Block, error) {
+	var block *common.Block
+	var err error
+	if block, err = tryDeserializeBlock(serializedBlockBytes, true); err != nil {
+		if block, err = tryDeserializeBlock(serializedBlockBytes, false); err != nil {
+			return nil, err
+		}
+	}
+	return block, nil
+}
+
+func tryDeserializeBlock(serializedBlockBytes []byte, withTimestamp bool) (*common.Block, error) {
 	block := &common.Block{}
 	var err error
 	b := newBuffer(serializedBlockBytes)
-	if block.Header, err = extractHeader(b); err != nil {
+	if block.Header, err = extractHeader(b, withTimestamp); err != nil {
 		return nil, err
 	}
 	if block.Data, _, err = extractData(b); err != nil {
@@ -60,10 +71,21 @@ func deserializeBlock(serializedBlockBytes []byte) (*common.Block, error) {
 }
 
 func extractSerializedBlockInfo(serializedBlockBytes []byte) (*serializedBlockInfo, error) {
+	var info *serializedBlockInfo
+	var err error
+	if info, err = tryExtractSerializedBlockInfo(serializedBlockBytes, true); err != nil {
+		if info, err = tryExtractSerializedBlockInfo(serializedBlockBytes, false); err != nil {
+			return nil, err
+		}
+	}
+	return info, nil
+}
+
+func tryExtractSerializedBlockInfo(serializedBlockBytes []byte, withTimestamp bool) (*serializedBlockInfo, error) {
 	info := &serializedBlockInfo{}
 	var err error
 	b := newBuffer(serializedBlockBytes)
-	info.blockHeader, err = extractHeader(b)
+	info.blockHeader, err = extractHeader(b, withTimestamp)
 	if err != nil {
 		return nil, err
 	}
@@ -88,6 +110,9 @@ func addHeaderBytes(blockHeader *common.BlockHeader, buf *proto.Buffer) error {
 	}
 	if err := buf.EncodeRawBytes(blockHeader.PreviousHash); err != nil {
 		return errors.Wrapf(err, "error encoding the previous hash [%v]", blockHeader.PreviousHash)
+	}
+	if err := buf.EncodeVarint(blockHeader.Timestamp); err != nil {
+		return errors.Wrapf(err, "error encoding the timestamp [%v]", blockHeader.Timestamp)
 	}
 	return nil
 }
@@ -130,7 +155,7 @@ func addMetadataBytes(blockMetadata *common.BlockMetadata, buf *proto.Buffer) er
 	return nil
 }
 
-func extractHeader(buf *buffer) (*common.BlockHeader, error) {
+func extractHeader(buf *buffer, withTimestamp bool) (*common.BlockHeader, error) {
 	header := &common.BlockHeader{}
 	var err error
 	if header.Number, err = buf.DecodeVarint(); err != nil {
@@ -144,6 +169,12 @@ func extractHeader(buf *buffer) (*common.BlockHeader, error) {
 	}
 	if len(header.PreviousHash) == 0 {
 		header.PreviousHash = nil
+	}
+
+	if withTimestamp {
+		if header.Timestamp, err = buf.DecodeVarint(); err != nil {
+			return nil, errors.Wrap(err, "error decoding the timestamp")
+		}
 	}
 	return header, nil
 }

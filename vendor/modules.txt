@@ -1,3 +1,6 @@
+# bou.ke/monkey v1.0.2
+## explicit
+bou.ke/monkey
 # code.cloudfoundry.org/clock v1.0.0
 ## explicit
 code.cloudfoundry.org/clock
@@ -364,6 +367,9 @@ github.com/syndtr/goleveldb/leveldb/util
 github.com/tedsuo/ifrit
 github.com/tedsuo/ifrit/ginkgomon
 github.com/tedsuo/ifrit/grouper
+# github.com/tkuchiki/faketime v0.1.1
+## explicit
+github.com/tkuchiki/faketime
 # github.com/willf/bitset v1.1.10
 ## explicit
 github.com/willf/bitset

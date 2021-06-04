@@ -39,6 +39,7 @@ type asn1Header struct {
 	Number       *big.Int
 	PreviousHash []byte
 	DataHash     []byte
+	Timestamp    *big.Int
 }
 
 func BlockHeaderBytes(b *cb.BlockHeader) []byte {
@@ -46,6 +47,7 @@ func BlockHeaderBytes(b *cb.BlockHeader) []byte {
 		PreviousHash: b.PreviousHash,
 		DataHash:     b.DataHash,
 		Number:       new(big.Int).SetUint64(b.Number),
+		Timestamp:    new(big.Int).SetUint64(b.Timestamp),
 	}
 	result, err := asn1.Marshal(asn1Header)
 	if err != nil {

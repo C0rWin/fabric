@@ -65,6 +65,7 @@ func ProposalToBlock(proposal types.Proposal) (*common.Block, error) {
 		Number:       hdr.Number.Uint64(),
 		PreviousHash: hdr.PreviousHash,
 		DataHash:     hdr.DataHash,
+		Timestamp:    hdr.Timestamp.Uint64(),
 	}
 
 	if len(proposal.Payload) == 0 {
@@ -90,4 +91,5 @@ type asn1Header struct {
 	Number       *big.Int
 	PreviousHash []byte
 	DataHash     []byte
+	Timestamp    *big.Int
 }

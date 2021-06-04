@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"sync/atomic"
+	"time"
 
 	"sync"
 
@@ -97,6 +98,11 @@ func (v *Verifier) VerifyProposal(proposal types.Proposal) ([]types.RequestInfo,
 
 	rtc := v.RuntimeConfig.Load().(RuntimeConfig)
 	if err := verifyHashChain(block, rtc.LastCommittedBlockHash); err != nil {
+		return nil, err
+	}
+
+	timeWindow := 30 * time.Second // Externalize configuration
+	if err := verifyTimestamp(block, timeWindow); err != nil {
 		return nil, err
 	}
 
@@ -235,6 +241,16 @@ func verifyHashChain(block *common.Block, prevHeaderHash string) error {
 	actualHashOfData := hex.EncodeToString(protoutil.BlockDataHash(block.Data))
 	if dataHash != actualHashOfData {
 		return errors.Errorf("data hash is %s but expected %s", dataHash, actualHashOfData)
+	}
+	return nil
+}
+
+func verifyTimestamp(block *common.Block, timeWindow time.Duration) error {
+	timestamp := time.Unix(0, int64(block.Header.Timestamp))
+
+	now := time.Now().UTC()
+	if timestamp.Before(now.Add(-timeWindow)) || timestamp.After(now.Add(timeWindow)) {
+		return errors.Errorf("blocks timestamp is outside of the time window, timestamp=%v", timestamp)
 	}
 	return nil
 }

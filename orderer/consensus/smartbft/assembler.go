@@ -9,6 +9,7 @@ package smartbft
 import (
 	"encoding/asn1"
 	"sync/atomic"
+	"time"
 
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	"github.com/hyperledger/fabric-protos-go/common"
@@ -49,6 +50,7 @@ func (a *Assembler) AssembleProposal(metadata []byte, requests [][]byte) (nextPr
 	block := protoutil.NewBlock(lastBlock.Header.Number+1, protoutil.BlockHeaderHash(lastBlock.Header))
 	block.Data = &common.BlockData{Data: batchedRequests}
 	block.Header.DataHash = protoutil.BlockDataHash(block.Data)
+	block.Header.Timestamp = uint64(time.Now().UnixNano())
 
 	if isConfigBlock(block) {
 		lastConfigBlockNum = block.Header.Number

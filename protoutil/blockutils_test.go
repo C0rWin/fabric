@@ -41,10 +41,12 @@ func TestNewBlock(t *testing.T) {
 		Number       int64
 		PreviousHash []byte
 		DataHash     []byte
+		Timestamp    uint64
 	}{
 		Number:       0,
 		DataHash:     protoutil.BlockDataHash(data),
 		PreviousHash: []byte("datahash"),
+		Timestamp:    0,
 	})
 	headerHash := sha256.Sum256(asn1Bytes)
 	require.NoError(t, err)

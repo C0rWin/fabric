@@ -300,7 +300,7 @@ func TestVerifyBlockHash(t *testing.T) {
 		{
 			name: "prev hash mismatch",
 			errorContains: "block [12]'s hash " +
-				"(866351705f1c2f13e10d52ead9d0ca3b80689ede8cc8bf70a6d60c67578323f4) " +
+				"(40daf037e1fd85562df2349e1f28166a3b0bbc65ad3f3004ddbbfdd9b4cb2b03) " +
 				"mismatches block [13]'s prev block hash (07)",
 			mutateBlockSequence: func(blockSequence []*common.Block) []*common.Block {
 				blockSequence[len(blockSequence)/2].Header.PreviousHash = []byte{7}
@@ -377,7 +377,7 @@ func TestVerifyBlocks(t *testing.T) {
 				return blockSequence
 			},
 			expectedError: "block [74]'s hash " +
-				"(5cb4bd1b6a73f81afafd96387bb7ff4473c2425929d0862586f5fbfa12d762dd) " +
+				"(13833c077b650c37c99bd485c6d2e89dce1c8ecb6ac1dde59cb7deb01d763f89) " +
 				"mismatches block [75]'s prev block hash (07)",
 		},
 		{
