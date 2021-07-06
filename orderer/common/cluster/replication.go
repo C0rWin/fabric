@@ -18,6 +18,7 @@ import (
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/internal/pkg/comm"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
+	"github.com/hyperledger/fabric/msp/clock"
 	"github.com/hyperledger/fabric/orderer/common/localconfig"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
@@ -254,6 +255,12 @@ func (r *Replicator) appendBlock(block *common.Block, ledger LedgerWriter, chann
 	if err := ledger.Append(block); err != nil {
 		r.Logger.Panicf("Failed to write block [%d]: %v", block.Header.Number, err)
 	}
+
+	err := clock.GetOrCreateChannelSyncedClock(channel).SyncWithBlock(block)
+	if err != nil {
+		r.Logger.Panicf("Failed to sync time with block [%d]: %v", block.Header.Number, err)
+	}
+
 	r.Logger.Infof("Committed block [%d] for channel %s", block.Header.Number, channel)
 }
 

@@ -22,6 +22,7 @@ import (
 	"github.com/hyperledger/fabric/bccsp/signer"
 	"github.com/hyperledger/fabric/bccsp/sw"
 	"github.com/hyperledger/fabric/bccsp/utils"
+	"github.com/hyperledger/fabric/msp/clock"
 	"github.com/pkg/errors"
 )
 
@@ -103,6 +104,9 @@ type bccspmsp struct {
 	// These are the OUIdentifiers of the clients, peers, admins and orderers.
 	// They are used to tell apart these entities
 	clientOU, peerOU, adminOU, ordererOU *OUIdentifier
+
+	// reference to the clock synchronized within the channel
+	clock *clock.ChannelSyncedClock
 }
 
 // newBccspMsp returns an MSP instance backed up by a BCCSP

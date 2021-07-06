@@ -32,6 +32,7 @@ import (
 	"github.com/hyperledger/fabric/core/ledger/pvtdatapolicy"
 	"github.com/hyperledger/fabric/core/ledger/pvtdatastorage"
 	"github.com/hyperledger/fabric/internal/pkg/txflags"
+	"github.com/hyperledger/fabric/msp/clock"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 )
@@ -712,6 +713,11 @@ func (l *kvLedger) commitToPvtAndBlockStore(blockAndPvtdata *ledger.BlockAndPvtD
 
 	if err := l.blockStore.AddBlock(blockAndPvtdata.Block); err != nil {
 		return err
+	}
+
+	err = clock.GetOrCreateChannelSyncedClock(l.ledgerID).SyncWithBlock(blockAndPvtdata.Block)
+	if err != nil {
+		return errors.Wrapf(err, "could not sync time with block %d", blockAndPvtdata.Block.Header.Number)
 	}
 
 	if pvtdataStoreHt == blockNum+1 {

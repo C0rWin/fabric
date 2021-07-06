@@ -16,6 +16,7 @@ import (
 	"github.com/hyperledger/fabric/common/ledger/blockledger"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
+	"github.com/hyperledger/fabric/msp/clock"
 	"github.com/hyperledger/fabric/protoutil"
 )
 
@@ -201,6 +202,12 @@ func (bw *BlockWriter) commitBlock(encodedMetadataValue []byte) {
 	if err != nil {
 		logger.Panicf("[channel: %s] Could not append block: %s", bw.support.ChannelID(), err)
 	}
+
+	err = clock.GetOrCreateChannelSyncedClock(bw.support.ChannelID()).SyncWithBlock(bw.lastBlock)
+	if err != nil {
+		logger.Panicf("could not sync time with block %d: %v", bw.lastBlock.Header.Number, err)
+	}
+
 	logger.Debugf("[channel: %s] Wrote block [%d]", bw.support.ChannelID(), bw.lastBlock.GetHeader().Number)
 }
 

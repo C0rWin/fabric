@@ -15,6 +15,7 @@ import (
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/msp"
 	"github.com/hyperledger/fabric/msp/cache"
+	"github.com/hyperledger/fabric/msp/clock"
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
 )
@@ -90,7 +91,7 @@ func GetManagerForChain(chainID string) msp.MSPManager {
 	mspMgr, ok := mspMap[chainID]
 	if !ok {
 		mspLogger.Debugf("Created new msp manager for channel `%s`", chainID)
-		mspMgmtMgr := &mspMgmtMgr{msp.NewMSPManager(), false}
+		mspMgmtMgr := &mspMgmtMgr{msp.NewMSPManagerWithClock(clock.GetOrCreateChannelSyncedClock(chainID)), false}
 		mspMap[chainID] = mspMgmtMgr
 		mspMgr = mspMgmtMgr
 	} else {

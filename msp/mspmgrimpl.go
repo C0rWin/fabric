@@ -10,6 +10,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric-protos-go/msp"
 	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric/msp/clock"
 	"github.com/pkg/errors"
 )
 
@@ -24,6 +25,9 @@ type mspManagerImpl struct {
 
 	// error that might have occurred at startup
 	up bool
+
+	// clock synchronized within a channel
+	clock *clock.ChannelSyncedClock
 }
 
 // NewMSPManager returns a new MSP manager instance;
@@ -31,6 +35,11 @@ type mspManagerImpl struct {
 // the Setup method is called
 func NewMSPManager() MSPManager {
 	return &mspManagerImpl{}
+}
+
+// TODO (AllFi): leave only one variant of constructor
+func NewMSPManagerWithClock(clock *clock.ChannelSyncedClock) MSPManager {
+	return &mspManagerImpl{clock: clock}
 }
 
 // Setup initializes the internal data structures of this manager and creates MSPs
