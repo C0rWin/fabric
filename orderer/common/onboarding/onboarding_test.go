@@ -198,6 +198,7 @@ func channelCreationBlock(systemChannel, applicationChannel string, prevBlock *c
 		Header: &common.BlockHeader{
 			Number:       prevBlock.Header.Number + 1,
 			PreviousHash: protoutil.BlockHeaderHash(prevBlock.Header),
+			Timestamp:    uint64(time.Now().UnixNano()),
 		},
 		Metadata: &common.BlockMetadata{
 			Metadata: [][]byte{{}, {}, {}, {}},
@@ -281,6 +282,7 @@ func TestOnboardingChannelUnavailable(t *testing.T) {
 	require.NoError(t, proto.Unmarshal(systemChannelBlockBytes, bootBlock))
 	bootBlock.Header.Number = 2
 	bootBlock.Header.PreviousHash = protoutil.BlockHeaderHash(channelCreationBlock.Header)
+	bootBlock.Header.Timestamp = uint64(time.Now().UnixNano())
 	injectOrdererEndpoint(t, bootBlock, deliverServer.srv.Address())
 	injectConsenterCertificate(t, testchannelGB, cert)
 

@@ -108,14 +108,14 @@ func TestCertExpiration(t *testing.T) {
 	msp.opts.Roots = x509.NewCertPool()
 	msp.opts.Roots.AddCert(cert)
 	_, err = msp.getUniqueValidationChain(cert, msp.getValidityOptsForCert(cert))
-	require.NoError(t, err)
+	require.Contains(t, err.Error(), "certificate has expired or is not yet valid")
 
 	// Certificate is in the past
 	_, cert = generateSelfSignedCert(t, time.Now().Add(-24*time.Hour))
 	msp.opts.Roots = x509.NewCertPool()
 	msp.opts.Roots.AddCert(cert)
 	_, err = msp.getUniqueValidationChain(cert, msp.getValidityOptsForCert(cert))
-	require.NoError(t, err)
+	require.Contains(t, err.Error(), "certificate has expired or is not yet valid")
 
 	// Certificate is in the middle
 	_, cert = generateSelfSignedCert(t, time.Now())
