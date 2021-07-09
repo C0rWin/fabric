@@ -34,6 +34,29 @@ func GetOrCreateChannelSyncedClock(channelID string) *ChannelSyncedClock {
 	return clocks[channelID]
 }
 
+func ResetAll() {
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	for channelID := range clocks {
+		clocks[channelID].mutex.Lock()
+		clocks[channelID].syncedTime = nil
+		clocks[channelID].mutex.Unlock()
+	}
+}
+
+func Reset(channelID string) {
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	if _, ok := clocks[channelID]; !ok {
+		return
+	}
+	clocks[channelID].mutex.Lock()
+	defer clocks[channelID].mutex.Unlock()
+	clocks[channelID].syncedTime = nil
+}
+
 func (c *ChannelSyncedClock) SyncedTime() (*time.Time, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -53,9 +76,9 @@ func (c *ChannelSyncedClock) SyncWithBlock(block *common.Block) error {
 		return nil
 	}
 
-	if block.Header.Timestamp == 0 {
-		return errors.New("timestamp should not be 0 for not genesis block")
-	}
+	// if block.Header.Timestamp == 0 {
+	// 	return errors.New("timestamp should not be 0 for not genesis block")
+	// }
 
 	time := time.Unix(0, int64(block.Header.Timestamp))
 	if c.syncedTime != nil && time.Before(*c.syncedTime) {

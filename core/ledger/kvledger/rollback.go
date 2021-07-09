@@ -9,6 +9,7 @@ package kvledger
 import (
 	"github.com/hyperledger/fabric/common/ledger/blkstorage"
 	"github.com/hyperledger/fabric/common/ledger/util/leveldbhelper"
+	"github.com/hyperledger/fabric/msp/clock"
 	"github.com/pkg/errors"
 )
 
@@ -45,6 +46,9 @@ func RollbackKVLedger(rootFSPath, ledgerID string, blockNum uint64) error {
 	if err := blkstorage.Rollback(blockstorePath, ledgerID, blockNum, indexConfig); err != nil {
 		return err
 	}
+
+	clock.Reset(ledgerID)
+
 	logger.Infof("The channel [%s] has been successfully rolled back to the block number [%d]", ledgerID, blockNum)
 	return nil
 }

@@ -9,6 +9,7 @@ package kvledger
 import (
 	"github.com/hyperledger/fabric/common/ledger/blkstorage"
 	"github.com/hyperledger/fabric/common/ledger/util/leveldbhelper"
+	"github.com/hyperledger/fabric/msp/clock"
 	"github.com/pkg/errors"
 )
 
@@ -39,6 +40,9 @@ func ResetAllKVLedgers(rootFSPath string) error {
 	if err := resetBlockStorage(rootFSPath); err != nil {
 		return err
 	}
+
+	clock.ResetAll()
+
 	logger.Info("All channel ledgers have been successfully reset to the genesis block")
 	return nil
 }
