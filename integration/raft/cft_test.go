@@ -27,6 +27,7 @@ import (
 	conftx "github.com/hyperledger/fabric-config/configtx"
 	"github.com/hyperledger/fabric-protos-go/common"
 	"github.com/hyperledger/fabric-protos-go/msp"
+	"github.com/hyperledger/fabric-protos-go/orderer/etcdraft"
 	"github.com/hyperledger/fabric/common/configtx"
 	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/integration/nwo"
@@ -228,16 +229,62 @@ var _ = Describe("EndToEnd Crash Fault Tolerance", func() {
 				return len(files)
 			}, network.EventuallyTimeout).Should(Equal(1))
 
+			By("Killing orderers right after snapshot was transferred")
+			ordererProc.Signal(syscall.SIGKILL)
+			Eventually(ordererProc.Wait(), network.EventuallyTimeout).Should(Receive())
+
+			By("Restarting ordering service to make sure orderers can form cluster after restart")
+			r1, r2 := network.OrdererRunner(o1), network.OrdererRunner(o2)
+			orderers = grouper.Members{
+				{Name: o1.ID(), Runner: r1},
+				{Name: o2.ID(), Runner: r2},
+			}
+			ordererGroup = grouper.NewParallel(syscall.SIGTERM, orderers)
+			ordererProc = ifrit.Invoke(ordererGroup)
+			Eventually(ordererProc.Ready(), network.EventuallyTimeout).Should(BeClosed())
+
+			By("Waiting for a new leader to be elected")
+			findLeader([]*ginkgomon.Runner{r1, r2})
+
+			for i := 1; i <= 4; i++ {
+				blko1 := FetchBlock(network, o1, uint64(i), channelID)
+				blko2 := FetchBlock(network, o2, uint64(i), channelID)
+
+				Expect(blko1.Header.DataHash).To(Equal(blko2.Header.DataHash))
+				metao1, err := protoutil.GetConsenterMetadataFromBlock(blko1)
+				Expect(err).NotTo(HaveOccurred())
+				metao2, err := protoutil.GetConsenterMetadataFromBlock(blko2)
+				Expect(err).NotTo(HaveOccurred())
+
+				bmo1 := &etcdraft.BlockMetadata{}
+				proto.Unmarshal(metao1.Value, bmo1)
+				bmo2 := &etcdraft.BlockMetadata{}
+				proto.Unmarshal(metao2.Value, bmo2)
+
+				Expect(bmo2).To(Equal(bmo1))
+			}
+
 			By("Asserting cluster is still functional")
 			env = CreateBroadcastEnvelope(network, o1, channelID, make([]byte, 1000))
 			resp, err := ordererclient.Broadcast(network, o1, env)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.Status).To(Equal(common.Status_SUCCESS))
+			Eventually(resp.Status, network.EventuallyTimeout).Should(Equal(common.Status_SUCCESS))
 
 			blko1 := FetchBlock(network, o1, 5, channelID)
 			blko2 := FetchBlock(network, o2, 5, channelID)
 
 			Expect(blko1.Header.DataHash).To(Equal(blko2.Header.DataHash))
+			metao1, err := protoutil.GetConsenterMetadataFromBlock(blko1)
+			Expect(err).NotTo(HaveOccurred())
+			metao2, err := protoutil.GetConsenterMetadataFromBlock(blko2)
+			Expect(err).NotTo(HaveOccurred())
+
+			bmo1 := &etcdraft.BlockMetadata{}
+			proto.Unmarshal(metao1.Value, bmo1)
+			bmo2 := &etcdraft.BlockMetadata{}
+
+			proto.Unmarshal(metao2.Value, bmo2)
+			Expect(bmo2).To(Equal(bmo1))
 		})
 	})
 
