@@ -443,6 +443,73 @@ var _ = Describe("EndToEnd Crash Fault Tolerance", func() {
 				Expect(bmo2).To(Equal(bmo1))
 			}
 		})
+
+		It("test to add new consenter", func() {
+			network = nwo.New(nwo.MultiNodeEtcdRaft(), testDir, client, StartPort(), components)
+			orderers := []*nwo.Orderer{network.Orderer("orderer1"), network.Orderer("orderer2"), network.Orderer("orderer3")}
+			peer = network.Peer("Org1", "peer0")
+
+			network.GenerateConfigTree()
+			network.Bootstrap()
+
+			ordererRunners := []*ginkgomon.Runner{}
+			orderersMembers := grouper.Members{}
+			for _, o := range orderers {
+				runner := network.OrdererRunner(o)
+				ordererRunners = append(ordererRunners, runner)
+				orderersMembers = append(orderersMembers, grouper.Member{
+					Name:   o.ID(),
+					Runner: runner,
+				})
+			}
+
+			By("Starting ordering service cluster")
+			ordererGroup := grouper.NewParallel(syscall.SIGTERM, orderersMembers)
+			ordererProc = ifrit.Invoke(ordererGroup)
+			Eventually(ordererProc.Ready(), network.EventuallyTimeout).Should(BeClosed())
+
+			By("Setting up new OSN to be added to the cluster")
+			o4 := &nwo.Orderer{
+				Name:         "orderer4",
+				Organization: "OrdererOrg",
+			}
+			ports := nwo.Ports{}
+			for _, portName := range nwo.OrdererPortNames() {
+				ports[portName] = network.ReservePort()
+			}
+
+			network.PortsByOrdererID[o4.ID()] = ports
+			network.Orderers = append(network.Orderers, o4)
+			network.GenerateOrdererConfig(o4)
+			extendNetwork(network)
+
+			ordererCertificatePath := filepath.Join(network.OrdererLocalTLSDir(o4), "server.crt")
+			ordererCert, err := ioutil.ReadFile(ordererCertificatePath)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Adding new ordering service node")
+			addConsenter(network, peer, orderers[0], "systemchannel", etcdraft.Consenter{
+				ServerTlsCert: ordererCert,
+				ClientTlsCert: ordererCert,
+				Host:          "127.0.0.1",
+				Port:          uint32(network.OrdererPort(o4, nwo.ClusterPort)),
+			})
+
+			Expect(err).NotTo(HaveOccurred())
+			By("Starting new ordering service node")
+			r4 := network.OrdererRunner(o4)
+			orderers = append(orderers, o4)
+			ordererRunners = append(ordererRunners, r4)
+			o4process := ifrit.Invoke(r4)
+			Eventually(o4process.Ready(), network.EventuallyTimeout).Should(BeClosed())
+
+			findLeader([]*ginkgomon.Runner{r4})
+
+			env := CreateBroadcastEnvelope(network, o4, "systemchannel", make([]byte, 2000))
+			resp, err := ordererclient.Broadcast(network, o4, env)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Status).To(Equal(common.Status_SUCCESS))
+		})
 	})
 
 	When("The leader dies", func() {
