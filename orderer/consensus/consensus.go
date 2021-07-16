@@ -98,6 +98,8 @@ type ConsenterSupport interface {
 	identity.SignerSerializer
 	msgprocessor.Processor
 
+	Id2Identity(envelope *cb.ConfigEnvelope) map[uint64][]byte
+
 	// VerifyBlockSignature verifies a signature of a block with a given optional
 	// configuration (can be nil).
 	VerifyBlockSignature([]*protoutil.SignedData, *cb.ConfigEnvelope) error

@@ -169,6 +169,18 @@ Profiles:{{ range .Profiles }}
           ServerTLSCert: {{ $w.OrdererLocalCryptoDir . "tls" }}/server.crt
         {{- end }}{{- end }}
       {{- end }}
+      {{- if eq $w.Consensus.Type "smartbft" }}
+      SmartBFT:
+        Consenters:{{ range .Orderers }}{{ with $w.Orderer . }}
+        - Host: 127.0.0.1
+          Port: {{ $w.OrdererPort . "Cluster" }}
+          ClientTLSCert: {{ $w.OrdererLocalCryptoDir . "tls" }}/server.crt
+          ServerTLSCert: {{ $w.OrdererLocalCryptoDir . "tls" }}/server.crt
+          MSPID: {{ $w.OrdererMSPID . }}
+          Identity: {{ $w.OrdererCert . }}
+          ConsenterId: {{ $w.OrdererIndex . }}
+        {{- end }}{{- end }}
+      {{- end }}
       Organizations:{{ range $w.OrgsForOrderers .Orderers }}
       - *{{ .MSPID }}
       {{- end }}
@@ -182,9 +194,15 @@ Profiles:{{ range .Profiles }}
         Admins:
           Type: ImplicitMeta
           Rule: MAJORITY Admins
+      {{- if eq $w.Consensus.Type "smartbft" }}
+        BlockValidation:
+          Type: ImplicitOrderer
+          Rule: SMARTBFT
+      {{- else }}
         BlockValidation:
           Type: ImplicitMeta
           Rule: ANY Writers
+      {{- end }}
     {{- end }}
     {{- if .Consortium }}
     Consortium: {{ .Consortium }}

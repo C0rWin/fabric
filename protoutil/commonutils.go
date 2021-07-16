@@ -192,7 +192,10 @@ func IsConfigBlock(block *cb.Block) bool {
 	if err != nil {
 		return false
 	}
+	return IsConfigTransaction(envelope)
+}
 
+func IsConfigTransaction(envelope *cb.Envelope) bool {
 	payload, err := UnmarshalPayload(envelope.Payload)
 	if err != nil {
 		return false

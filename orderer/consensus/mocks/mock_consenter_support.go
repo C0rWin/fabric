@@ -97,6 +97,17 @@ type FakeConsenterSupport struct {
 	heightReturnsOnCall map[int]struct {
 		result1 uint64
 	}
+	Id2IdentityStub        func(*common.ConfigEnvelope) map[uint64][]byte
+	id2IdentityMutex       sync.RWMutex
+	id2IdentityArgsForCall []struct {
+		arg1 *common.ConfigEnvelope
+	}
+	id2IdentityReturns struct {
+		result1 map[uint64][]byte
+	}
+	id2IdentityReturnsOnCall map[int]struct {
+		result1 map[uint64][]byte
+	}
 	ProcessConfigMsgStub        func(*common.Envelope) (*common.Envelope, uint64, error)
 	processConfigMsgMutex       sync.RWMutex
 	processConfigMsgArgsForCall []struct {
@@ -663,6 +674,66 @@ func (fake *FakeConsenterSupport) HeightReturnsOnCall(i int, result1 uint64) {
 	}
 	fake.heightReturnsOnCall[i] = struct {
 		result1 uint64
+	}{result1}
+}
+
+func (fake *FakeConsenterSupport) Id2Identity(arg1 *common.ConfigEnvelope) map[uint64][]byte {
+	fake.id2IdentityMutex.Lock()
+	ret, specificReturn := fake.id2IdentityReturnsOnCall[len(fake.id2IdentityArgsForCall)]
+	fake.id2IdentityArgsForCall = append(fake.id2IdentityArgsForCall, struct {
+		arg1 *common.ConfigEnvelope
+	}{arg1})
+	fake.recordInvocation("Id2Identity", []interface{}{arg1})
+	fake.id2IdentityMutex.Unlock()
+	if fake.Id2IdentityStub != nil {
+		return fake.Id2IdentityStub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	fakeReturns := fake.id2IdentityReturns
+	return fakeReturns.result1
+}
+
+func (fake *FakeConsenterSupport) Id2IdentityCallCount() int {
+	fake.id2IdentityMutex.RLock()
+	defer fake.id2IdentityMutex.RUnlock()
+	return len(fake.id2IdentityArgsForCall)
+}
+
+func (fake *FakeConsenterSupport) Id2IdentityCalls(stub func(*common.ConfigEnvelope) map[uint64][]byte) {
+	fake.id2IdentityMutex.Lock()
+	defer fake.id2IdentityMutex.Unlock()
+	fake.Id2IdentityStub = stub
+}
+
+func (fake *FakeConsenterSupport) Id2IdentityArgsForCall(i int) *common.ConfigEnvelope {
+	fake.id2IdentityMutex.RLock()
+	defer fake.id2IdentityMutex.RUnlock()
+	argsForCall := fake.id2IdentityArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeConsenterSupport) Id2IdentityReturns(result1 map[uint64][]byte) {
+	fake.id2IdentityMutex.Lock()
+	defer fake.id2IdentityMutex.Unlock()
+	fake.Id2IdentityStub = nil
+	fake.id2IdentityReturns = struct {
+		result1 map[uint64][]byte
+	}{result1}
+}
+
+func (fake *FakeConsenterSupport) Id2IdentityReturnsOnCall(i int, result1 map[uint64][]byte) {
+	fake.id2IdentityMutex.Lock()
+	defer fake.id2IdentityMutex.Unlock()
+	fake.Id2IdentityStub = nil
+	if fake.id2IdentityReturnsOnCall == nil {
+		fake.id2IdentityReturnsOnCall = make(map[int]struct {
+			result1 map[uint64][]byte
+		})
+	}
+	fake.id2IdentityReturnsOnCall[i] = struct {
+		result1 map[uint64][]byte
 	}{result1}
 }
 

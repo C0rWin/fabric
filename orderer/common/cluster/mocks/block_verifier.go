@@ -14,6 +14,22 @@ type BlockVerifier struct {
 	mock.Mock
 }
 
+// Id2Identity provides a mock function with given fields: envelope
+func (_m *BlockVerifier) Id2Identity(envelope *common.ConfigEnvelope) map[uint64][]byte {
+	ret := _m.Called(envelope)
+
+	var r0 map[uint64][]byte
+	if rf, ok := ret.Get(0).(func(*common.ConfigEnvelope) map[uint64][]byte); ok {
+		r0 = rf(envelope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[uint64][]byte)
+		}
+	}
+
+	return r0
+}
+
 // VerifyBlockSignature provides a mock function with given fields: sd, config
 func (_m *BlockVerifier) VerifyBlockSignature(sd []*protoutil.SignedData, config *common.ConfigEnvelope) error {
 	ret := _m.Called(sd, config)

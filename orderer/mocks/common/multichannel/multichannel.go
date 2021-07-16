@@ -70,6 +70,10 @@ type ConsenterSupport struct {
 	BlockVerificationErr error
 }
 
+func (mcs *ConsenterSupport) Id2Identity(envelope *cb.ConfigEnvelope) map[uint64][]byte {
+	return nil
+}
+
 // Block returns the block with the given number or nil if not found
 func (mcs *ConsenterSupport) Block(number uint64) *cb.Block {
 	return mcs.BlockByIndex[number]

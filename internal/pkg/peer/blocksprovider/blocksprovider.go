@@ -62,14 +62,21 @@ type GossipServiceAdapter interface {
 	Gossip(msg *gossip.GossipMessage)
 }
 
-//go:generate counterfeiter -o fake/block_verifier.go --fake-name BlockVerifier . BlockVerifier
-type BlockVerifier interface {
+//go:generate counterfeiter -o fake/block_header_verifier.go --fake-name BlockHeaderVerifier . BlockHeaderVerifier
+type BlockHeaderVerifier interface {
 	VerifyBlock(channelID gossipcommon.ChannelID, blockNum uint64, block *common.Block) error
+
+	// VerifyHeader returns nil when the header matches the metadata signature, but it does not compute the
+	// block.Data.Hash() and compare it to the block.Header.DataHash, or otherwise inspect the block.Data.
+	// This is used when the orderer delivers a block with header & metadata only (i.e. block.Data==nil).
+	// See: gossip/api/MessageCryptoService
+	VerifyHeader(channelID string, block *common.Block) error
 }
 
 //go:generate counterfeiter -o fake/orderer_connection_source.go --fake-name OrdererConnectionSource . OrdererConnectionSource
 type OrdererConnectionSource interface {
 	RandomEndpoint() (*orderers.Endpoint, error)
+	AllEndpoints() ([]*orderers.Endpoint, error)
 }
 
 //go:generate counterfeiter -o fake/dialer.go --fake-name Dialer . Dialer
@@ -82,12 +89,17 @@ type DeliverStreamer interface {
 	Deliver(context.Context, *grpc.ClientConn) (orderer.AtomicBroadcast_DeliverClient, error)
 }
 
+type BlocksProvider interface {
+	DeliverBlocks()
+	Stop()
+}
+
 // Deliverer the actual implementation for BlocksProvider interface
 type Deliverer struct {
 	ChannelID       string
 	Gossip          GossipServiceAdapter
 	Ledger          LedgerInfo
-	BlockVerifier   BlockVerifier
+	BlockVerifier   BlockHeaderVerifier
 	Dialer          Dialer
 	Orderers        OrdererConnectionSource
 	DoneC           chan struct{}

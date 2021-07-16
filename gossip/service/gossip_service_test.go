@@ -103,6 +103,13 @@ func (s *testTransientStore) GetTxPvtRWSetByTxid(txid string, filter ledger.PvtN
 	return s.Store.GetTxPvtRWSetByTxid(txid, filter)
 }
 
+type id2IdentitiesFetcherMock struct {
+}
+
+func (*id2IdentitiesFetcherMock) Id2Identities(cid string) map[uint64][]byte {
+	return nil
+}
+
 func TestInitGossipService(t *testing.T) {
 	grpcServer := grpc.NewServer()
 	endpoint, socket := getAvailablePort(t)
@@ -114,7 +121,7 @@ func TestInitGossipService(t *testing.T) {
 	require.NoError(t, err)
 	signer := mgmt.GetLocalSigningIdentityOrPanic(cryptoProvider)
 
-	messageCryptoService := peergossip.NewMCS(&mocks.ChannelPolicyManagerGetter{}, signer, mgmt.NewDeserializersManager(cryptoProvider), cryptoProvider)
+	messageCryptoService := peergossip.NewMCS(&mocks.ChannelPolicyManagerGetter{}, &id2IdentitiesFetcherMock{}, signer, mgmt.NewDeserializersManager(cryptoProvider), cryptoProvider)
 	secAdv := peergossip.NewSecurityAdvisor(mgmt.NewDeserializersManager(cryptoProvider))
 	gossipConfig, err := gossip.GlobalConfig(endpoint, nil)
 	require.NoError(t, err)
@@ -843,6 +850,10 @@ func (*naiveCryptoService) GetPKIidOfCert(peerIdentity api.PeerIdentityType) gos
 // VerifyBlock returns nil if the block is properly signed,
 // else returns error
 func (*naiveCryptoService) VerifyBlock(chainID gossipcommon.ChannelID, seqNum uint64, signedBlock *common.Block) error {
+	return nil
+}
+
+func (*naiveCryptoService) VerifyHeader(chainID string, signedBlock *common.Block) error {
 	return nil
 }
 

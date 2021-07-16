@@ -19,11 +19,15 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric-config/protolator"
 	"github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric-protos-go/orderer"
+	"github.com/hyperledger/fabric-protos-go/orderer/smartbft"
 	"github.com/hyperledger/fabric/bccsp"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/configtx"
+	"github.com/hyperledger/fabric/common/crypto"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/common/util"
@@ -207,6 +211,8 @@ type BlockVerifier interface {
 	// If the config envelope passed is nil, then the validation rules used
 	// are the ones that were applied at commit of previous blocks.
 	VerifyBlockSignature(sd []*protoutil.SignedData, config *common.ConfigEnvelope) error
+
+	Id2Identity(envelope *common.ConfigEnvelope) map[uint64][]byte
 }
 
 // BlockSequenceVerifier verifies that the given consecutive sequence
@@ -220,7 +226,15 @@ type Dialer interface {
 
 // VerifyBlocks verifies the given consecutive sequence of blocks is valid,
 // and returns nil if it's valid, else an error.
-func VerifyBlocks(blockBuff []*common.Block, signatureVerifier BlockVerifier) error {
+func VerifyBlocksCFT(blockBuff []*common.Block, signatureVerifier BlockVerifier) error {
+	return verifyBlockSequence(blockBuff, signatureVerifier, false)
+}
+
+func VerifyBlocksBFT(blockBuff []*common.Block, signatureVerifier BlockVerifier) error {
+	return verifyBlockSequence(blockBuff, signatureVerifier, true)
+}
+
+func verifyBlockSequence(blockBuff []*common.Block, signatureVerifier BlockVerifier, alwaysCheckSig bool) error {
 	if len(blockBuff) == 0 {
 		return errors.New("buffer is empty")
 	}
@@ -240,11 +254,11 @@ func VerifyBlocks(blockBuff []*common.Block, signatureVerifier BlockVerifier) er
 	// during iteration over the block batch.
 	for _, block := range blockBuff {
 		configFromBlock, err := ConfigFromBlock(block)
-		if err == errNotAConfig {
+		if err == errNotAConfig && !alwaysCheckSig {
 			isLastBlockConfigBlock = false
 			continue
 		}
-		if err != nil {
+		if err != nil && !alwaysCheckSig {
 			return err
 		}
 		// The block is a configuration block, so verify it
@@ -348,7 +362,7 @@ func VerifyBlockHash(indexInBuffer int, blockBuff []*common.Block) error {
 }
 
 // SignatureSetFromBlock creates a signature set out of a block.
-func SignatureSetFromBlock(block *common.Block) ([]*protoutil.SignedData, error) {
+func SignatureSetFromBlock(block *common.Block, id2identities map[uint64][]byte) ([]*protoutil.SignedData, error) {
 	if block.Metadata == nil || len(block.Metadata.Metadata) <= int(common.BlockMetadataIndex_SIGNATURES) {
 		return nil, errors.New("no metadata in block")
 	}
@@ -359,16 +373,25 @@ func SignatureSetFromBlock(block *common.Block) ([]*protoutil.SignedData, error)
 
 	var signatureSet []*protoutil.SignedData
 	for _, metadataSignature := range metadata.Signatures {
-		sigHdr, err := protoutil.UnmarshalSignatureHeader(metadataSignature.SignatureHeader)
-		if err != nil {
-			return nil, errors.Errorf("failed unmarshaling signature header for block with id %d: %v",
-				block.Header.Number, err)
+		identity := id2identities[metadataSignature.SignerId]
+		if len(metadataSignature.SignatureHeader) > 0 {
+			sigHdr, err := protoutil.UnmarshalSignatureHeader(metadataSignature.SignatureHeader)
+			if err != nil {
+				return nil, errors.Errorf("failed unmarshaling signature header for block with id %d: %v",
+					block.Header.Number, err)
+			}
+			identity = sigHdr.Creator
+		} else {
+			metadataSignature.SignatureHeader = protoutil.MarshalOrPanic(&common.SignatureHeader{
+				Creator: identity,
+				Nonce:   metadataSignature.Nonce,
+			})
 		}
 		signatureSet = append(signatureSet,
 			&protoutil.SignedData{
-				Identity: sigHdr.Creator,
+				Identity: identity,
 				Data: util.ConcatenateBytes(metadata.Value,
-					metadataSignature.SignatureHeader, protoutil.BlockHeaderBytes(block.Header)),
+					metadataSignature.SignatureHeader, protoutil.BlockHeaderBytes(block.Header), metadataSignature.AuxiliaryInput),
 				Signature: metadataSignature.Signature,
 			},
 		)
@@ -378,7 +401,8 @@ func SignatureSetFromBlock(block *common.Block) ([]*protoutil.SignedData, error)
 
 // VerifyBlockSignature verifies the signature on the block with the given BlockVerifier and the given config.
 func VerifyBlockSignature(block *common.Block, verifier BlockVerifier, config *common.ConfigEnvelope) error {
-	signatureSet, err := SignatureSetFromBlock(block)
+	id2identities := verifier.Id2Identity(config)
+	signatureSet, err := SignatureSetFromBlock(block, id2identities)
 	if err != nil {
 		return err
 	}
@@ -619,6 +643,7 @@ func (bva *BlockVerifierAssembler) VerifierFromConfig(configuration *common.Conf
 	policyMgr := bundle.PolicyManager()
 
 	return &BlockValidationPolicyVerifier{
+		envelope:  configuration,
 		Logger:    bva.Logger,
 		PolicyMgr: policyMgr,
 		Channel:   channel,
@@ -632,6 +657,7 @@ type BlockValidationPolicyVerifier struct {
 	Channel   string
 	PolicyMgr policies.Manager
 	BCCSP     bccsp.BCCSP
+	envelope  *common.ConfigEnvelope
 }
 
 // VerifyBlockSignature verifies the signed data associated to a block, optionally with the given config envelope.
@@ -654,6 +680,34 @@ func (bv *BlockValidationPolicyVerifier) VerifyBlockSignature(sd []*protoutil.Si
 		return errors.Errorf("policy %s wasn't found", policies.BlockValidation)
 	}
 	return policy.EvaluateSignedData(sd)
+}
+
+func (bv *BlockValidationPolicyVerifier) Id2Identity(envelope *common.ConfigEnvelope) map[uint64][]byte {
+	if envelope == nil {
+		envelope = bv.envelope
+	}
+	consensusType := envelope.Config.ChannelGroup.Groups[channelconfig.OrdererGroupKey].Values[channelconfig.ConsensusTypeKey].Value
+	ct := &orderer.ConsensusType{}
+	err := proto.Unmarshal(consensusType, ct)
+	if err != nil {
+		bv.Logger.Panicf("Failed unmarshaling ConsensusType from consensusType: %v", err)
+	}
+
+	m := &smartbft.ConfigMetadata{}
+	err = proto.Unmarshal(ct.Metadata, m)
+	if err != nil {
+		bv.Logger.Panicf("Failed unmarshaling ConfigMetadata from metadata: %v", err)
+	}
+
+	res := make(map[uint64][]byte)
+	for _, consenter := range m.Consenters {
+		sanitizedID, err := crypto.SanitizeIdentity(consenter.Identity)
+		if err != nil {
+			bv.Logger.Panicf("Failed to sanitize identity: %v", err)
+		}
+		res[consenter.ConsenterId] = sanitizedID
+	}
+	return res
 }
 
 //go:generate mockery -dir . -name BlockRetriever -case underscore -output ./mocks/

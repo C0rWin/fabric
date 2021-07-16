@@ -22,6 +22,14 @@ github.com/Shopify/sarama
 github.com/Shopify/sarama/mocks
 # github.com/Shopify/toxiproxy v2.1.4+incompatible
 ## explicit
+# github.com/SmartBFT-Go/consensus v0.0.1 => ../consensus
+## explicit
+github.com/SmartBFT-Go/consensus/internal/bft
+github.com/SmartBFT-Go/consensus/pkg/api
+github.com/SmartBFT-Go/consensus/pkg/consensus
+github.com/SmartBFT-Go/consensus/pkg/types
+github.com/SmartBFT-Go/consensus/pkg/wal
+github.com/SmartBFT-Go/consensus/smartbftprotos
 # github.com/VictoriaMetrics/fastcache v1.5.7
 ## explicit
 github.com/VictoriaMetrics/fastcache
@@ -163,7 +171,7 @@ github.com/hyperledger/fabric-chaincode-go/pkg/statebased
 github.com/hyperledger/fabric-chaincode-go/shim
 github.com/hyperledger/fabric-chaincode-go/shim/internal
 github.com/hyperledger/fabric-chaincode-go/shimtest
-# github.com/hyperledger/fabric-config v0.0.7
+# github.com/hyperledger/fabric-config v0.0.1 => ../fabric-config
 ## explicit
 github.com/hyperledger/fabric-config/configtx
 github.com/hyperledger/fabric-config/configtx/internal/policydsl
@@ -175,11 +183,12 @@ github.com/hyperledger/fabric-config/protolator/protoext/commonext
 github.com/hyperledger/fabric-config/protolator/protoext/ledger/rwsetext
 github.com/hyperledger/fabric-config/protolator/protoext/mspext
 github.com/hyperledger/fabric-config/protolator/protoext/ordererext
+github.com/hyperledger/fabric-config/protolator/protoext/ordererext/smartbft
 github.com/hyperledger/fabric-config/protolator/protoext/peerext
 # github.com/hyperledger/fabric-lib-go v1.0.0
 ## explicit
 github.com/hyperledger/fabric-lib-go/healthz
-# github.com/hyperledger/fabric-protos-go v0.0.0-20201028172056-a3136dde2354
+# github.com/hyperledger/fabric-protos-go v0.0.1 => ../fabric-protos-go
 ## explicit
 github.com/hyperledger/fabric-protos-go/common
 github.com/hyperledger/fabric-protos-go/discovery
@@ -190,6 +199,7 @@ github.com/hyperledger/fabric-protos-go/ledger/rwset/kvrwset
 github.com/hyperledger/fabric-protos-go/msp
 github.com/hyperledger/fabric-protos-go/orderer
 github.com/hyperledger/fabric-protos-go/orderer/etcdraft
+github.com/hyperledger/fabric-protos-go/orderer/smartbft
 github.com/hyperledger/fabric-protos-go/peer
 github.com/hyperledger/fabric-protos-go/peer/lifecycle
 github.com/hyperledger/fabric-protos-go/transientstore
@@ -325,7 +335,7 @@ github.com/spf13/pflag
 # github.com/spf13/viper v1.1.1
 ## explicit
 github.com/spf13/viper
-# github.com/stretchr/objx v0.1.1
+# github.com/stretchr/objx v0.2.0
 github.com/stretchr/objx
 # github.com/stretchr/testify v1.7.1-0.20210116013205-6990a05d54c2
 ## explicit
@@ -373,7 +383,7 @@ go.etcd.io/etcd/wal/walpb
 go.uber.org/atomic
 # go.uber.org/multierr v1.5.0
 go.uber.org/multierr
-# go.uber.org/zap v1.14.1
+# go.uber.org/zap v1.15.0
 ## explicit
 go.uber.org/zap
 go.uber.org/zap/buffer
@@ -396,6 +406,8 @@ golang.org/x/net/http2/hpack
 golang.org/x/net/idna
 golang.org/x/net/internal/timeseries
 golang.org/x/net/trace
+# golang.org/x/sync v0.0.0-20200317015054-43a5402ce75a
+golang.org/x/sync/semaphore
 # golang.org/x/sys v0.0.0-20200819091447-39769834ee22 => golang.org/x/sys v0.0.0-20190920190810-ef0ce1748380
 ## explicit
 golang.org/x/sys/cpu
@@ -422,16 +434,18 @@ golang.org/x/text/secure/bidirule
 golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
-# golang.org/x/tools v0.0.0-20200131233409-575de47986ce
+# golang.org/x/tools v0.0.0-20200513201620-d5fe73897c97
 ## explicit
 golang.org/x/tools/go/gcexportdata
 golang.org/x/tools/go/internal/gcimporter
 golang.org/x/tools/go/internal/packagesdriver
 golang.org/x/tools/go/packages
-golang.org/x/tools/internal/fastwalk
-golang.org/x/tools/internal/gopathwalk
-golang.org/x/tools/internal/semver
-golang.org/x/tools/internal/span
+golang.org/x/tools/internal/event
+golang.org/x/tools/internal/event/core
+golang.org/x/tools/internal/event/keys
+golang.org/x/tools/internal/event/label
+golang.org/x/tools/internal/gocommand
+golang.org/x/tools/internal/packagesinternal
 # golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1
 golang.org/x/xerrors
 golang.org/x/xerrors/internal

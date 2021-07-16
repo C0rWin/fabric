@@ -38,7 +38,7 @@ var _ = Describe("Blocksprovider", func() {
 		fakeGossipServiceAdapter    *fake.GossipServiceAdapter
 		fakeOrdererConnectionSource *fake.OrdererConnectionSource
 		fakeLedgerInfo              *fake.LedgerInfo
-		fakeBlockVerifier           *fake.BlockVerifier
+		fakeBlockVerifier           *fake.BlockHeaderVerifier
 		fakeSigner                  *fake.Signer
 		fakeDeliverStreamer         *fake.DeliverStreamer
 		fakeDeliverClient           *fake.DeliverClient
@@ -70,7 +70,7 @@ var _ = Describe("Blocksprovider", func() {
 		}
 
 		fakeGossipServiceAdapter = &fake.GossipServiceAdapter{}
-		fakeBlockVerifier = &fake.BlockVerifier{}
+		fakeBlockVerifier = &fake.BlockHeaderVerifier{}
 		fakeSigner = &fake.Signer{}
 
 		fakeLedgerInfo = &fake.LedgerInfo{}

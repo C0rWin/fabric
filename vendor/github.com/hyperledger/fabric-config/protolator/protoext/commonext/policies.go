@@ -32,6 +32,8 @@ func (p *Policy) VariablyOpaqueFieldProto(name string) (proto.Message, error) {
 		return &common.SignaturePolicyEnvelope{}, nil
 	case int32(common.Policy_IMPLICIT_META):
 		return &common.ImplicitMetaPolicy{}, nil
+	case int32(common.Policy_IMPLICIT_ORDERER):
+		return &common.ImplicitOrdererPolicy{}, nil
 	default:
 		return nil, fmt.Errorf("unable to decode policy type: %v", p.Type)
 	}

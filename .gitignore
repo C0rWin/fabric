@@ -25,3 +25,6 @@ TESTS*.xml
 .tox/
 .vagrant/
 .vscode
+/.github/
+/.idea/
+*.test

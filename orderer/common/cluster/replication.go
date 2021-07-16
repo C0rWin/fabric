@@ -392,7 +392,7 @@ func BlockPullerFromConfigBlock(conf PullerConfig, block *common.Block, verifier
 			if verifier == nil {
 				return errors.Errorf("couldn't acquire verifier for channel %s", channel)
 			}
-			return VerifyBlocks(blocks, verifier)
+			return VerifyBlocksBFT(blocks, verifier)
 		},
 		MaxTotalBufferBytes: conf.MaxTotalBufferBytes,
 		Endpoints:           endpoints,
@@ -409,6 +409,10 @@ type NoopBlockVerifier struct{}
 
 // VerifyBlockSignature accepts all signatures over blocks.
 func (*NoopBlockVerifier) VerifyBlockSignature(sd []*protoutil.SignedData, config *common.ConfigEnvelope) error {
+	return nil
+}
+
+func (*NoopBlockVerifier) Id2Identity(envelope *common.ConfigEnvelope) map[uint64][]byte {
 	return nil
 }
 

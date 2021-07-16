@@ -185,6 +185,8 @@ type ManagerImpl struct {
 
 // NewManagerImpl creates a new ManagerImpl with the given CryptoHelper
 func NewManagerImpl(path string, providers map[int32]Provider, root *cb.ConfigGroup) (*ManagerImpl, error) {
+	logger.Debugf("Entry: path=%s, providers=%v, root.Policies=%v", path, providers, root.Policies)
+
 	var err error
 	_, ok := providers[int32(cb.Policy_IMPLICIT_META)]
 	if ok {
@@ -230,7 +232,7 @@ func NewManagerImpl(path string, providers map[int32]Provider, root *cb.ConfigGr
 
 		policies[policyName] = cPolicy
 
-		logger.Debugf("Proposed new policy %s for %s", policyName, path)
+		logger.Debugf("Proposed new policy %s, of type %T, for %s", policyName, cPolicy, path)
 	}
 
 	for groupName, manager := range managers {

@@ -42,10 +42,15 @@ type Hasher interface {
 // A similar mechanism needs to be in place to update the local MSP, as well.
 // This implementation assumes that these mechanisms are all in place and working.
 type MSPMessageCryptoService struct {
+	id2IdentitiesFetcher       Id2IdentitiesFetcher
 	channelPolicyManagerGetter policies.ChannelPolicyManagerGetter
 	localSigner                identity.SignerSerializer
 	deserializer               mgmt.DeserializersManager
 	hasher                     Hasher
+}
+
+type Id2IdentitiesFetcher interface {
+	Id2Identities(cid string) map[uint64][]byte
 }
 
 // NewMCS creates a new instance of MSPMessageCryptoService
@@ -56,12 +61,14 @@ type MSPMessageCryptoService struct {
 // 3. an identity deserializer manager
 func NewMCS(
 	channelPolicyManagerGetter policies.ChannelPolicyManagerGetter,
+	id2IdentitiesFetcher Id2IdentitiesFetcher,
 	localSigner identity.SignerSerializer,
 	deserializer mgmt.DeserializersManager,
 	hasher Hasher,
 ) *MSPMessageCryptoService {
 	return &MSPMessageCryptoService{
 		channelPolicyManagerGetter: channelPolicyManagerGetter,
+		id2IdentitiesFetcher:       id2IdentitiesFetcher,
 		localSigner:                localSigner,
 		deserializer:               deserializer,
 		hasher:                     hasher,
@@ -141,7 +148,7 @@ func (s *MSPMessageCryptoService) VerifyBlock(chainID common.ChannelID, seqNum u
 		return fmt.Errorf("Invalid block's channel id. Expected [%s]. Given [%s]", chainID, channelID)
 	}
 
-	// - Unmarshal medatada
+	// - Unmarshal metadata
 	if block.Metadata == nil || len(block.Metadata.Metadata) == 0 {
 		return fmt.Errorf("Block with id [%d] on channel [%s] does not have metadata. Block not valid.", block.Header.Number, chainID)
 	}
@@ -157,8 +164,10 @@ func (s *MSPMessageCryptoService) VerifyBlock(chainID common.ChannelID, seqNum u
 		return fmt.Errorf("Header.DataHash is different from Hash(block.Data) for block with id [%d] on channel [%s]", block.Header.Number, chainID)
 	}
 
-	// - Get Policy for block validation
+	return s.verifyHeaderWithMetadata(channelID, block.Header, metadata)
+}
 
+func (s *MSPMessageCryptoService) verifyHeaderWithMetadata(channelID string, header *pcommon.BlockHeader, metadata *pcommon.Metadata) error {
 	// Get the policy manager for channelID
 	cpm := s.channelPolicyManagerGetter.Manager(channelID)
 	if cpm == nil {
@@ -171,18 +180,29 @@ func (s *MSPMessageCryptoService) VerifyBlock(chainID common.ChannelID, seqNum u
 	// ok is true if it was the policy requested, or false if it is the default policy
 	mcsLogger.Debugf("Got block validation policy for channel [%s] with flag [%t]", channelID, ok)
 
+	id2identities := s.id2IdentitiesFetcher.Id2Identities(channelID)
+
 	// - Prepare SignedData
 	signatureSet := []*protoutil.SignedData{}
 	for _, metadataSignature := range metadata.Signatures {
+		identity, ok := id2identities[metadataSignature.SignerId]
+		if !ok {
+			return fmt.Errorf("identity for id %d was not found", metadataSignature.SignerId)
+		}
+		metadataSignature.SignatureHeader = protoutil.MarshalOrPanic(&pcommon.SignatureHeader{
+			Nonce:   metadataSignature.Nonce,
+			Creator: identity,
+		})
 		shdr, err := protoutil.UnmarshalSignatureHeader(metadataSignature.SignatureHeader)
 		if err != nil {
-			return fmt.Errorf("Failed unmarshalling signature header for block with id [%d] on channel [%s]: [%s]", block.Header.Number, chainID, err)
+			return fmt.Errorf("Failed unmarshalling signature header for block with id [%d] on channel [%s]: [%s]", header.Number, channelID, err)
 		}
+		aux := metadataSignature.AuxiliaryInput
 		signatureSet = append(
 			signatureSet,
 			&protoutil.SignedData{
 				Identity:  shdr.Creator,
-				Data:      util.ConcatenateBytes(metadata.Value, metadataSignature.SignatureHeader, protoutil.BlockHeaderBytes(block.Header)),
+				Data:      util.ConcatenateBytes(metadata.Value, metadataSignature.SignatureHeader, protoutil.BlockHeaderBytes(header), aux),
 				Signature: metadataSignature.Signature,
 			},
 		)
@@ -190,6 +210,28 @@ func (s *MSPMessageCryptoService) VerifyBlock(chainID common.ChannelID, seqNum u
 
 	// - Evaluate policy
 	return policy.EvaluateSignedData(signatureSet)
+}
+
+func (s *MSPMessageCryptoService) VerifyHeader(channelID string, block *pcommon.Block) error {
+	if block == nil {
+		return fmt.Errorf("Invalid Block on channel [%s]. Block is nil.", channelID)
+	}
+
+	if block.Header == nil {
+		return fmt.Errorf("Invalid Block on channel [%s]. Header must be different from nil.", channelID)
+	}
+
+	// - Unmarshal metadata
+	if block.Metadata == nil || len(block.Metadata.Metadata) == 0 {
+		return fmt.Errorf("Block with id [%d] on channel [%s] does not have metadata. Block not valid.", block.Header.Number, channelID)
+	}
+
+	metadata, err := protoutil.GetMetadataFromBlock(block, pcommon.BlockMetadataIndex_SIGNATURES)
+	if err != nil {
+		return fmt.Errorf("Failed unmarshalling medatata for signatures [%s]", err)
+	}
+
+	return s.verifyHeaderWithMetadata(channelID, block.Header, metadata)
 }
 
 // Sign signs msg with this peer's signing key and outputs

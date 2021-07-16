@@ -20,6 +20,7 @@ import (
 	"github.com/hyperledger/fabric/internal/pkg/comm"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/internal/pkg/peer/blocksprovider"
+	"github.com/hyperledger/fabric/internal/pkg/peer/blocksprovider/bft"
 	"github.com/hyperledger/fabric/internal/pkg/peer/orderers"
 	"google.golang.org/grpc"
 )
@@ -47,7 +48,7 @@ type DeliverService interface {
 // blocks providers
 type deliverServiceImpl struct {
 	conf           *Config
-	blockProviders map[string]*blocksprovider.Deliverer
+	blockProviders map[string]blocksprovider.BlocksProvider
 	lock           sync.RWMutex
 	stopping       bool
 }
@@ -60,7 +61,7 @@ type Config struct {
 	IsStaticLeader bool
 	// CryptoSvc performs cryptographic actions like message verification and signing
 	// and identity validation.
-	CryptoSvc blocksprovider.BlockVerifier
+	CryptoSvc blocksprovider.BlockHeaderVerifier
 	// Gossip enables to enumerate peers in the channel, send a message to peers,
 	// and add a block to the gossip state transfer layer.
 	Gossip blocksprovider.GossipServiceAdapter
@@ -82,7 +83,7 @@ type Config struct {
 func NewDeliverService(conf *Config) DeliverService {
 	ds := &deliverServiceImpl{
 		conf:           conf,
-		blockProviders: make(map[string]*blocksprovider.Deliverer),
+		blockProviders: make(map[string]blocksprovider.BlocksProvider),
 	}
 	return ds
 }
@@ -120,28 +121,57 @@ func (d *deliverServiceImpl) StartDeliverForChannel(chainID string, ledgerInfo b
 	}
 	logger.Info("This peer will retrieve blocks from ordering service and disseminate to other peers in the organization for channel", chainID)
 
-	dc := &blocksprovider.Deliverer{
-		ChannelID:     chainID,
-		Gossip:        d.conf.Gossip,
-		Ledger:        ledgerInfo,
-		BlockVerifier: d.conf.CryptoSvc,
-		Dialer: DialerAdapter{
-			Client: d.conf.DeliverGRPCClient,
-		},
-		Orderers:            d.conf.OrdererSource,
-		DoneC:               make(chan struct{}),
-		Signer:              d.conf.Signer,
-		DeliverStreamer:     DeliverAdapter{},
-		Logger:              flogging.MustGetLogger("peer.blocksprovider").With("channel", chainID),
-		MaxRetryDelay:       d.conf.DeliverServiceConfig.ReConnectBackoffThreshold,
-		MaxRetryDuration:    d.conf.DeliverServiceConfig.ReconnectTotalTimeThreshold,
-		BlockGossipDisabled: !d.conf.DeliverServiceConfig.BlockGossipEnabled,
-		InitialRetryDelay:   100 * time.Millisecond,
-		YieldLeadership:     !d.conf.IsStaticLeader,
-	}
+	var dc blocksprovider.BlocksProvider
+	if !d.conf.DeliverServiceConfig.IsBFT {
+		deliverer := &blocksprovider.Deliverer{
+			ChannelID:     chainID,
+			Gossip:        d.conf.Gossip,
+			Ledger:        ledgerInfo,
+			BlockVerifier: d.conf.CryptoSvc,
+			Dialer: DialerAdapter{
+				Client: d.conf.DeliverGRPCClient,
+			},
+			Orderers:            d.conf.OrdererSource,
+			DoneC:               make(chan struct{}),
+			Signer:              d.conf.Signer,
+			DeliverStreamer:     DeliverAdapter{},
+			Logger:              flogging.MustGetLogger("peer.blocksprovider").With("channel", chainID),
+			MaxRetryDelay:       d.conf.DeliverServiceConfig.ReConnectBackoffThreshold,
+			MaxRetryDuration:    d.conf.DeliverServiceConfig.ReconnectTotalTimeThreshold,
+			BlockGossipDisabled: !d.conf.DeliverServiceConfig.BlockGossipEnabled,
+			InitialRetryDelay:   100 * time.Millisecond,
+			YieldLeadership:     !d.conf.IsStaticLeader,
+		}
 
-	if d.conf.DeliverGRPCClient.MutualTLSRequired() {
-		dc.TLSCertHash = util.ComputeSHA256(d.conf.DeliverGRPCClient.Certificate().Certificate[0])
+		if d.conf.DeliverGRPCClient.MutualTLSRequired() {
+			deliverer.TLSCertHash = util.ComputeSHA256(d.conf.DeliverGRPCClient.Certificate().Certificate[0])
+		}
+		dc = deliverer
+	} else {
+		deliverer := bft.NewDeliverer(
+			chainID,
+			d.conf.Gossip,
+			ledgerInfo,
+			d.conf.CryptoSvc,
+			DialerAdapter{
+				Client: d.conf.DeliverGRPCClient,
+			},
+			d.conf.OrdererSource,
+			make(chan struct{}),
+			d.conf.Signer,
+			DeliverAdapter{},
+			flogging.MustGetLogger("peer.bftblocksprovider").With("channel", chainID),
+			!d.conf.IsStaticLeader,
+			d.conf.DeliverServiceConfig.ReConnectBackoffThreshold,
+			100*time.Millisecond,
+			d.conf.DeliverServiceConfig.ReconnectTotalTimeThreshold,
+			d.conf.DeliverServiceConfig.BlockCensorshipTimeout,
+		)
+
+		if d.conf.DeliverGRPCClient.MutualTLSRequired() {
+			deliverer.TLSCertHash = util.ComputeSHA256(d.conf.DeliverGRPCClient.Certificate().Certificate[0])
+		}
+		dc = deliverer
 	}
 
 	d.blockProviders[chainID] = dc

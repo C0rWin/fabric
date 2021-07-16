@@ -456,6 +456,7 @@ func serve(args []string) error {
 		policyMgr,
 		metricsProvider,
 		peerServer,
+		peerInstance,
 		signingIdentity,
 		cs,
 		coreConfig.PeerAddress,
@@ -1173,6 +1174,7 @@ func initGossipService(
 	policyMgr policies.ChannelPolicyManagerGetter,
 	metricsProvider metrics.Provider,
 	peerServer *comm.GRPCServer,
+	peerInstance *peer.Peer,
 	signer msp.SigningIdentity,
 	credSupport *comm.CredentialSupport,
 	peerAddress string,
@@ -1195,6 +1197,7 @@ func initGossipService(
 
 	messageCryptoService := peergossip.NewMCS(
 		policyMgr,
+		&peer.IdentityFethcer{Peer: peerInstance},
 		signer,
 		mgmt.NewDeserializersManager(factory.GetDefault()),
 		factory.GetDefault(),

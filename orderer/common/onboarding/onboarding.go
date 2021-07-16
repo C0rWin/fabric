@@ -23,6 +23,7 @@ import (
 	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/orderer/common/localconfig"
 	"github.com/hyperledger/fabric/orderer/consensus/etcdraft"
+	"github.com/hyperledger/fabric/orderer/consensus/smartbft"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 )
@@ -108,10 +109,18 @@ func (ri *ReplicationInitiator) ReplicateIfNeeded(bootstrapBlock *common.Block) 
 }
 
 func (ri *ReplicationInitiator) createReplicator(bootstrapBlock *common.Block, filter func(string) bool) *cluster.Replicator {
-	consenterCert := &etcdraft.ConsenterCertificate{
+	membershipPred := etcdraft.ConsenterCertificate{
 		Logger:               ri.logger,
 		ConsenterCertificate: ri.secOpts.Certificate,
 		CryptoProvider:       ri.cryptoProvider,
+	}.IsConsenterOfChannel
+
+	if !isEmpty(bootstrapBlock) && consensusType(bootstrapBlock, ri.cryptoProvider) == "smartbft" {
+		membershipPred = smartbft.ConsenterCertificate{
+			Logger:               ri.logger,
+			ConsenterCertificate: ri.secOpts.Certificate,
+			CryptoProvider:       ri.cryptoProvider,
+		}.IsConsenterOfChannel
 	}
 
 	systemChannelName, err := protoutil.GetChannelIDFromBlock(bootstrapBlock)
@@ -132,7 +141,7 @@ func (ri *ReplicationInitiator) createReplicator(bootstrapBlock *common.Block, f
 		SystemChannel:    systemChannelName,
 		BootBlock:        bootstrapBlock,
 		Logger:           ri.logger,
-		AmIPartOfChannel: consenterCert.IsConsenterOfChannel,
+		AmIPartOfChannel: membershipPred,
 		Puller:           puller,
 		ChannelLister: &cluster.ChainInspector{
 			Logger:          ri.logger,
@@ -147,6 +156,29 @@ func (ri *ReplicationInitiator) createReplicator(bootstrapBlock *common.Block, f
 	}
 
 	return replicator
+}
+
+func isEmpty(genesisBlock *common.Block) bool {
+	return genesisBlock == nil || genesisBlock.Data == nil || len(genesisBlock.Data.Data) == 0
+}
+
+func consensusType(genesisBlock *common.Block, bccsp bccsp.BCCSP) string {
+	if isEmpty(genesisBlock) {
+		logger.Fatalf("Empty genesis block")
+	}
+	env := &common.Envelope{}
+	if err := proto.Unmarshal(genesisBlock.Data.Data[0], env); err != nil {
+		logger.Fatalf("Failed to unmarshal the genesis block's envelope: %v", err)
+	}
+	bundle, err := channelconfig.NewBundleFromEnvelope(env, bccsp)
+	if err != nil {
+		logger.Fatalf("Failed creating bundle from the genesis block: %v", err)
+	}
+	ordConf, exists := bundle.OrdererConfig()
+	if !exists {
+		logger.Fatalf("Orderer config doesn't exist in bundle derived from genesis block")
+	}
+	return ordConf.ConsensusType()
 }
 
 func (ri *ReplicationInitiator) replicateNeededChannels(bootstrapBlock *common.Block) {

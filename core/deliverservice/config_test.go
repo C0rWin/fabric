@@ -86,6 +86,8 @@ func TestGlobalConfig(t *testing.T) {
 	viper.Set("peer.deliveryclient.reConnectBackoffThreshold", "25s")
 	viper.Set("peer.deliveryclient.reconnectTotalTimeThreshold", "20s")
 	viper.Set("peer.deliveryclient.connTimeout", "10s")
+	viper.Set("peer.deliveryclient.bft.enabled", "true")
+	viper.Set("peer.deliveryclient.bft.blockCensorshipTimeout", "10s")
 	viper.Set("peer.keepalive.deliveryClient.interval", "5s")
 	viper.Set("peer.keepalive.deliveryClient.timeout", "2s")
 
@@ -107,6 +109,8 @@ func TestGlobalConfig(t *testing.T) {
 		SecOpts: comm.SecureOptions{
 			UseTLS: true,
 		},
+		IsBFT:                  true,
+		BlockCensorshipTimeout: 10 * time.Second,
 	}
 
 	require.Equal(t, expectedConfig, coreConfig)

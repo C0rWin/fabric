@@ -140,6 +140,28 @@ func SignedByNOutOfGivenRole(n int32, role mb.MSPRole_MSPRoleType, ids []string)
 	return p
 }
 
+// SignedByNOutOfGivenIdentities returns a policy that requires N valid signatures from the given identities.
+func SignedByNOutOfGivenIdentities(n int32, identities [][]byte) *cb.SignaturePolicyEnvelope {
+	principals := make([]*mb.MSPPrincipal, len(identities))
+	signedBySigPolicies := make([]*cb.SignaturePolicy, len(identities))
+	for i, identity := range identities {
+		principals[i] = &mb.MSPPrincipal{
+			PrincipalClassification: mb.MSPPrincipal_IDENTITY,
+			Principal:               identity,
+		}
+		signedBySigPolicies[i] = SignedBy(int32(i))
+	}
+
+	// create the policy: it requires exactly n signature out of the principals (identities).
+	p := &cb.SignaturePolicyEnvelope{
+		Version:    0,
+		Rule:       NOutOf(n, signedBySigPolicies),
+		Identities: principals,
+	}
+
+	return p
+}
+
 // SignedByAnyMember returns a policy that requires one valid
 // signature from a member of any of the orgs whose ids are
 // listed in the supplied string array

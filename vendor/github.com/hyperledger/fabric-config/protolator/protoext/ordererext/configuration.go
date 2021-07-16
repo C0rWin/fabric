@@ -58,6 +58,10 @@ type ConsensusTypeMetadataFactory interface {
 	NewMessage() proto.Message
 }
 
+var DecodeHooks = map[string][]func(proto.Message) proto.Message{}
+
+var EncodeHooks = map[string][]func(proto.Message) proto.Message{}
+
 // ConsensuTypeMetadataMap should have consensus implementations register their metadata message factories
 var ConsensusTypeMetadataMap = map[string]ConsensusTypeMetadataFactory{}
 
@@ -159,6 +163,7 @@ type DynamicOrdererOrgConfigValue struct {
 func (doocv *DynamicOrdererOrgConfigValue) Underlying() proto.Message {
 	return doocv.ConfigValue
 }
+
 func (doocv *DynamicOrdererOrgConfigValue) StaticallyOpaqueFields() []string {
 	return []string{"value"}
 }

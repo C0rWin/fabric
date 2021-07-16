@@ -10,12 +10,15 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric-protos-go/orderer/smartbft"
 	pb "github.com/hyperledger/fabric-protos-go/peer"
 	"github.com/hyperledger/fabric/bccsp"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	cc "github.com/hyperledger/fabric/common/config"
 	"github.com/hyperledger/fabric/common/configtx"
+	"github.com/hyperledger/fabric/common/crypto"
 	"github.com/hyperledger/fabric/common/deliver"
 	"github.com/hyperledger/fabric/common/flogging"
 	commonledger "github.com/hyperledger/fabric/common/ledger"
@@ -116,6 +119,14 @@ func (p *Peer) updateTrustedRoots(cm channelconfig.Resources) {
 			"This peer may not be able to communicate with members of channel %s (%s)"
 		peerLogger.Warningf(msg, cm.ConfigtxValidator().ChannelID(), err)
 	}
+}
+
+type IdentityFethcer struct {
+	Peer *Peer
+}
+
+func (idf *IdentityFethcer) Id2Identities(cid string) map[uint64][]byte {
+	return idf.Peer.SmartBFTId2Identities(cid)
 }
 
 //
@@ -478,6 +489,28 @@ func (p *Peer) GetPolicyManager(cid string) policies.Manager {
 		return c.Resources().PolicyManager()
 	}
 	return nil
+}
+
+func (p *Peer) SmartBFTId2Identities(cid string) map[uint64][]byte {
+	c := p.Channel(cid)
+	oc, ok := c.Resources().OrdererConfig()
+	if !ok {
+		return nil
+	}
+
+	m := &smartbft.ConfigMetadata{}
+	proto.Unmarshal(oc.ConsensusMetadata(), m)
+
+	res := make(map[uint64][]byte)
+	for _, consenter := range m.Consenters {
+		sanitizedID, err := crypto.SanitizeIdentity(consenter.Identity)
+		if err != nil {
+			peerLogger.Panicf("Failed to sanitize identity: %v", err)
+		}
+		res[consenter.ConsenterId] = sanitizedID
+	}
+
+	return res
 }
 
 // JoinBySnaphotStatus queries ledger mgr to get the status of joinbysnapshot

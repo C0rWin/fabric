@@ -127,6 +127,31 @@ func NewRegistrar(
 	return r
 }
 
+func (r *Registrar) ProposeConfigUpdate(channel string, configtx *cb.Envelope) (*cb.ConfigEnvelope, error) {
+	r.lock.RLock()
+	cs, exists := r.chains[channel]
+	r.lock.RUnlock()
+
+	if !exists {
+		return nil, errors.Errorf("channel %s doesn't exist", channel)
+	}
+
+	return cs.ProposeConfigUpdate(configtx)
+}
+
+func (r *Registrar) ApplyFilters(channel string, env *cb.Envelope) error {
+	r.lock.RLock()
+	cs, exists := r.chains[channel]
+	r.lock.RUnlock()
+
+	if !exists {
+		// This is for the system channel
+		return msgprocessor.CreateSystemChannelFilters(r.config, r, r.systemChannel, r.systemChannel.MetadataValidator).Apply(env)
+	}
+
+	return msgprocessor.CreateStandardChannelFilters(cs, r.config).Apply(env)
+}
+
 // InitJoinBlockFileRepo initialize the channel participation API joinblock file repo. This creates
 // the fileRepoDir on the filesystem if it does not already exist.
 func InitJoinBlockFileRepo(config *localconfig.TopLevel) (*filerepo.Repo, error) {

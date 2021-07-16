@@ -13,6 +13,7 @@ import (
 	"github.com/hyperledger/fabric/common/configtx"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/policies"
+	"github.com/hyperledger/fabric/common/policies/orderer"
 	"github.com/hyperledger/fabric/msp"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
@@ -199,6 +200,16 @@ func NewBundle(channelID string, config *cb.Config, bccsp bccsp.BCCSP) (*Bundle,
 			policyProviderMap[pType] = cauthdsl.NewPolicyProvider(channelConfig.MSPManager())
 		case cb.Policy_MSP:
 			// Add hook for MSP Handler here
+		case cb.Policy_IMPLICIT_ORDERER:
+			if channelConfig.OrdererConfig() != nil {
+				policyProviderMap[pType] = orderer.NewPolicyProvider(
+					channelConfig.MSPManager(),
+					channelConfig.OrdererConfig().ConsensusType(),
+					channelConfig.OrdererConfig().ConsensusMetadata(),
+				)
+			} else {
+				logger.Warn("[%v] Cannot initialize IMPLICIT_ORDERER policy provider", channelID)
+			}
 		}
 	}
 

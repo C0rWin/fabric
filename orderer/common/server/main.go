@@ -50,6 +50,7 @@ import (
 	"github.com/hyperledger/fabric/orderer/consensus"
 	"github.com/hyperledger/fabric/orderer/consensus/etcdraft"
 	"github.com/hyperledger/fabric/orderer/consensus/kafka"
+	"github.com/hyperledger/fabric/orderer/consensus/smartbft"
 	"github.com/hyperledger/fabric/orderer/consensus/solo"
 	"github.com/hyperledger/fabric/protoutil"
 	"go.uber.org/zap/zapcore"
@@ -66,7 +67,10 @@ var (
 	_       = app.Command("start", "Start the orderer node").Default() // preserved for cli compatibility
 	version = app.Command("version", "Show version information")
 
-	clusterTypes = map[string]struct{}{"etcdraft": {}}
+	clusterTypes = map[string]struct{}{
+		"etcdraft": {},
+		"smartbft": {},
+	}
 )
 
 // Main is the entry point of orderer process
@@ -721,8 +725,12 @@ func isClusterType(genesisBlock *cb.Block, bccsp bccsp.BCCSP) bool {
 	return exists
 }
 
+func isEmpty(genesisBlock *cb.Block) bool {
+	return genesisBlock == nil || genesisBlock.Data == nil || len(genesisBlock.Data.Data) == 0
+}
+
 func consensusType(genesisBlock *cb.Block, bccsp bccsp.BCCSP) string {
-	if genesisBlock == nil || genesisBlock.Data == nil || len(genesisBlock.Data.Data) == 0 {
+	if isEmpty(genesisBlock) {
 		logger.Fatalf("Empty genesis block")
 	}
 	env := &cb.Envelope{}
@@ -802,19 +810,49 @@ func initializeMultichannelRegistrar(
 	bccsp bccsp.BCCSP,
 	callbacks ...channelconfig.BundleActor,
 ) *multichannel.Registrar {
+	dpmr := &DynamicPolicyManagerRegistry{}
+	callbacks = append(callbacks, dpmr.Update)
+
 	registrar := multichannel.NewRegistrar(*conf, lf, signer, metricsProvider, bccsp, clusterDialer, callbacks...)
 
 	consenters := map[string]consensus.Consenter{}
 
+	genesisBlock := extractBootstrapBlock(conf)
+	var consenterType string
+	if isEmpty(genesisBlock) {
+		consenterType = "etcdraft"
+	} else {
+		consenterType = consensusType(genesisBlock, bccsp)
+	}
+
 	var icr etcdraft.InactiveChainRegistry
-	if conf.General.BootstrapMethod == "file" || conf.General.BootstrapMethod == "none" {
-		if bootstrapBlock != nil && isClusterType(bootstrapBlock, bccsp) {
-			// with a system channel
-			etcdConsenter := initializeEtcdraftConsenter(consenters, conf, lf, clusterDialer, bootstrapBlock, repInitiator, srvConf, srv, registrar, metricsProvider, bccsp)
-			icr = etcdConsenter.InactiveChainRegistry
-		} else if bootstrapBlock == nil {
-			// without a system channel: assume cluster type, InactiveChainRegistry == nil, no go-routine.
-			consenters["etcdraft"] = etcdraft.New(clusterDialer, conf, srvConf, srv, registrar, nil, metricsProvider, bccsp)
+	if _, exists := clusterTypes[consenterType]; exists {
+		switch consenterType {
+		case "etcdraft":
+			{
+				if conf.General.BootstrapMethod == "file" || conf.General.BootstrapMethod == "none" {
+					if bootstrapBlock != nil && isClusterType(bootstrapBlock, bccsp) {
+						// with a system channel
+						etcdConsenter := initializeEtcdraftConsenter(consenters, conf, lf, clusterDialer, bootstrapBlock, repInitiator, srvConf, srv, registrar, metricsProvider, bccsp)
+						icr = etcdConsenter.InactiveChainRegistry
+					} else if bootstrapBlock == nil {
+						// without a system channel: assume cluster type, InactiveChainRegistry == nil, no go-routine.
+						consenters["etcdraft"] = etcdraft.New(clusterDialer, conf, srvConf, srv, registrar, nil, metricsProvider, bccsp)
+					}
+				}
+			}
+		case "smartbft":
+			{
+				if bootstrapBlock != nil && isClusterType(bootstrapBlock, bccsp) {
+					// with a system channel
+					initializeSmartBFTConsenter(dpmr, consenters, conf, lf, clusterDialer, bootstrapBlock, repInitiator, srvConf, srv, registrar, metricsProvider, bccsp)
+				} else if bootstrapBlock == nil {
+					// without a system channel: assume cluster type, InactiveChainRegistry == nil, no go-routine.
+					consenters["smartbft"] = smartbft.New(nil, dpmr.Registry(), clusterDialer, conf, srvConf, srv, registrar, metricsProvider, bccsp)
+				}
+			}
+		default:
+			logger.Panicf("Unknown cluster type consenter")
 		}
 	}
 
@@ -866,6 +904,45 @@ func initializeEtcdraftConsenter(
 	raftConsenter := etcdraft.New(clusterDialer, conf, srvConf, srv, registrar, icr, metricsProvider, bccsp)
 	consenters["etcdraft"] = raftConsenter
 	return raftConsenter
+}
+
+func initializeSmartBFTConsenter(
+	dpmr *DynamicPolicyManagerRegistry,
+	consenters map[string]consensus.Consenter,
+	conf *localconfig.TopLevel,
+	lf blockledger.Factory,
+	clusterDialer *cluster.PredicateDialer,
+	bootstrapBlock *cb.Block,
+	ri *onboarding.ReplicationInitiator,
+	srvConf comm.ServerConfig,
+	srv *comm.GRPCServer,
+	registrar *multichannel.Registrar,
+	metricsProvider metrics.Provider,
+	cryptoProvider bccsp.BCCSP,
+) {
+	systemChannelName, err := protoutil.GetChannelIDFromBlock(bootstrapBlock)
+	if err != nil {
+		logger.Panicf("Failed extracting system channel name from bootstrap block: %v", err)
+	}
+	systemLedger, err := lf.GetOrCreate(systemChannelName)
+	if err != nil {
+		logger.Panicf("Failed obtaining system channel (%s) ledger: %v", systemChannelName, err)
+	}
+	getConfigBlock := func() *cb.Block {
+		return multichannel.ConfigBlockOrPanic(systemLedger)
+	}
+
+	icr := onboarding.NewInactiveChainReplicator(ri, getConfigBlock, ri.RegisterChain, conf.General.Cluster.ReplicationBackgroundRefreshInterval)
+
+	// Use the inactiveChainReplicator as a channel lister, since it has knowledge
+	// of all inactive chains.
+	// This is to prevent us pulling the entire system chain when attempting to enumerate
+	// the channels in the system.
+	ri.ChannelLister = icr
+
+	go icr.Run()
+
+	consenters["smartbft"] = smartbft.New(icr, dpmr.Registry(), clusterDialer, conf, srvConf, srv, registrar, metricsProvider, cryptoProvider)
 }
 
 func newOperationsSystem(ops localconfig.Operations, metrics localconfig.Metrics) *operations.System {

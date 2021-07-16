@@ -46,6 +46,15 @@ func NewConnectionSource(logger *flogging.FabricLogger, overrides map[string]*En
 	}
 }
 
+func (cs *ConnectionSource) AllEndpoints() ([]*Endpoint, error) {
+	cs.mutex.RLock()
+	defer cs.mutex.RUnlock()
+	if len(cs.allEndpoints) == 0 {
+		return nil, errors.Errorf("no endpoints currently defined")
+	}
+	return cs.allEndpoints, nil
+}
+
 func (cs *ConnectionSource) RandomEndpoint() (*Endpoint, error) {
 	cs.mutex.RLock()
 	defer cs.mutex.RUnlock()

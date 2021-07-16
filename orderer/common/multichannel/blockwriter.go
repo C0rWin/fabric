@@ -33,6 +33,7 @@ type blockWriterSupport interface {
 // BlockWriter will spawn additional committing go routines and handle locking
 // so that these other go routines safely interact with the calling one.
 type BlockWriter struct {
+	sync               bool
 	support            blockWriterSupport
 	registrar          *Registrar
 	lastConfigBlockNum uint64
@@ -41,8 +42,9 @@ type BlockWriter struct {
 	committingBlock    sync.Mutex
 }
 
-func newBlockWriter(lastBlock *cb.Block, r *Registrar, support blockWriterSupport) *BlockWriter {
+func newBlockWriter(lastBlock *cb.Block, r *Registrar, support blockWriterSupport, sync bool) *BlockWriter {
 	bw := &BlockWriter{
+		sync:          sync,
 		support:       support,
 		lastConfigSeq: support.Sequence(),
 		lastBlock:     lastBlock,
@@ -166,6 +168,10 @@ func (bw *BlockWriter) WriteConfigBlock(block *cb.Block, encodedMetadataValue []
 // then release the lock.  This allows the calling thread to begin assembling the next block
 // before the commit phase is complete.
 func (bw *BlockWriter) WriteBlock(block *cb.Block, encodedMetadataValue []byte) {
+	if bw.sync {
+		bw.writeBlockSync(block, encodedMetadataValue)
+		return
+	}
 	bw.committingBlock.Lock()
 	bw.lastBlock = block
 
@@ -175,11 +181,21 @@ func (bw *BlockWriter) WriteBlock(block *cb.Block, encodedMetadataValue []byte) 
 	}()
 }
 
+func (bw *BlockWriter) writeBlockSync(block *cb.Block, encodedMetadataValue []byte) {
+	bw.committingBlock.Lock()
+	defer bw.committingBlock.Unlock()
+
+	bw.lastBlock = block
+	bw.commitBlock(encodedMetadataValue)
+}
+
 // commitBlock should only ever be invoked with the bw.committingBlock held
 // this ensures that the encoded config sequence numbers stay in sync
 func (bw *BlockWriter) commitBlock(encodedMetadataValue []byte) {
 	bw.addLastConfig(bw.lastBlock)
-	bw.addBlockSignature(bw.lastBlock, encodedMetadataValue)
+	if len(bw.lastBlock.Metadata.Metadata[cb.BlockMetadataIndex_SIGNATURES]) == 0 {
+		bw.addBlockSignature(bw.lastBlock, encodedMetadataValue)
+	}
 
 	err := bw.support.Append(bw.lastBlock)
 	if err != nil {

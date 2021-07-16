@@ -1,0 +1,17 @@
+language: go
+
+go:
+- 1.13.x
+
+go_import_path: github.com/hyperledger/fabric
+
+script: bash ./scripts/build_checks.sh
+
+jobs:
+  include:
+    - stage: BFT
+      script: bash ./scripts/build_checks.sh
+    - stage: parallel UT
+      script: bash ./unit-test/run.sh parallel
+    - stage: serial UT
+      script: bash ./unit-test/run.sh serial

@@ -16,11 +16,14 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric-config/protolator"
+	"github.com/hyperledger/fabric-config/protolator/protoext/ordererext"
+	_ "github.com/hyperledger/fabric-config/protolator/protoext/ordererext/smartbft"
 	_ "github.com/hyperledger/fabric-protos-go/common"
 	cb "github.com/hyperledger/fabric-protos-go/common" // Import these to register the proto types
 	_ "github.com/hyperledger/fabric-protos-go/msp"
 	_ "github.com/hyperledger/fabric-protos-go/orderer"
 	_ "github.com/hyperledger/fabric-protos-go/orderer/etcdraft"
+	_ "github.com/hyperledger/fabric-protos-go/orderer/smartbft"
 	_ "github.com/hyperledger/fabric-protos-go/peer"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/internal/configtxlator/metadata"
@@ -138,6 +141,12 @@ func encodeProto(msgName string, input, output *os.File) error {
 		return errors.Wrapf(err, "error decoding input")
 	}
 
+	for _, hooks := range ordererext.EncodeHooks {
+		for _, hook := range hooks {
+			msg = hook(msg)
+		}
+	}
+
 	out, err := proto.Marshal(msg)
 	if err != nil {
 		return errors.Wrapf(err, "error marshaling")
@@ -166,6 +175,12 @@ func decodeProto(msgName string, input, output *os.File) error {
 	err = proto.Unmarshal(in, msg)
 	if err != nil {
 		return errors.Wrapf(err, "error unmarshaling")
+	}
+
+	for _, hooks := range ordererext.DecodeHooks {
+		for _, hook := range hooks {
+			msg = hook(msg)
+		}
 	}
 
 	err = protolator.DeepMarshalJSON(output, msg)

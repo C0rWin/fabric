@@ -7,8 +7,13 @@ SPDX-License-Identifier: Apache-2.0
 package multichannel
 
 import (
+	"github.com/golang/protobuf/proto"
 	cb "github.com/hyperledger/fabric-protos-go/common"
+	"github.com/hyperledger/fabric-protos-go/orderer"
+	"github.com/hyperledger/fabric-protos-go/orderer/smartbft"
 	"github.com/hyperledger/fabric/bccsp"
+	"github.com/hyperledger/fabric/common/channelconfig"
+	"github.com/hyperledger/fabric/common/crypto"
 	"github.com/hyperledger/fabric/common/ledger/blockledger"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
 	"github.com/hyperledger/fabric/orderer/common/blockcutter"
@@ -71,11 +76,17 @@ func newChainSupport(
 		BCCSP: bccsp,
 	}
 
+	var synchronousBlockWriting bool
+	oc, _ := ledgerResources.OrdererConfig()
+	if oc.ConsensusType() == "smartbft" {
+		synchronousBlockWriting = true
+	}
+
 	// Set up the msgprocessor
 	cs.Processor = msgprocessor.NewStandardChannel(cs, msgprocessor.CreateStandardChannelFilters(cs, registrar.config), bccsp)
 
 	// Set up the block writer
-	cs.BlockWriter = newBlockWriter(lastBlock, registrar, cs)
+	cs.BlockWriter = newBlockWriter(lastBlock, registrar, cs, synchronousBlockWriting)
 
 	// Set up the consenter
 	consenterType := ledgerResources.SharedConfig().ConsensusType()
@@ -197,4 +208,34 @@ func newOnBoardingChainSupport(
 	logger.Debugf("[channel: %s] Done creating onboarding channel support resources", cs.ChannelID())
 
 	return cs, nil
+}
+
+func (cs *ChainSupport) Id2Identity(envelope *cb.ConfigEnvelope) map[uint64][]byte {
+	consensusMD := cs.SharedConfig().ConsensusMetadata()
+	if envelope != nil {
+		consensusMD = envelope.Config.ChannelGroup.Groups[channelconfig.OrdererGroupKey].Values[channelconfig.ConsensusTypeKey].Value
+		ct := &orderer.ConsensusType{}
+		err := proto.Unmarshal(consensusMD, ct)
+		if err != nil {
+			logger.Panicf("Failed unmarshaling ConsensusType from consensusType: %v", err)
+		}
+		consensusMD = ct.Metadata
+	}
+
+	m := &smartbft.ConfigMetadata{}
+	err := proto.Unmarshal(consensusMD, m)
+	if err != nil {
+		logger.Panicf("Failed unmarshaling ConfigMetadata from metadata: %v", err)
+	}
+
+	res := make(map[uint64][]byte)
+	for _, consenter := range m.Consenters {
+		sanitizedID, err := crypto.SanitizeIdentity(consenter.Identity)
+		if err != nil {
+			logger.Panicf("Failed to sanitize identity: %v", err)
+		}
+		res[consenter.ConsenterId] = sanitizedID
+	}
+
+	return res
 }

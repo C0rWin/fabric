@@ -46,6 +46,13 @@ type DeliverServiceConfig struct {
 	// OrdererEndpointOverrides is a map of orderer addresses which should be
 	// re-mapped to a different orderer endpoint.
 	OrdererEndpointOverrides map[string]*orderers.Endpoint
+
+	// Whether to use a BFT client implementation
+	IsBFT bool
+	// The block censorship timeout. A block censorship suspicion is declared if more than f header receivers
+	// are ahead of the block receiver for a period larger than this timeout.
+	// (f is the number of failures tolerated in the BFT cluster.)
+	BlockCensorshipTimeout time.Duration
 }
 
 type AddressOverride struct {
@@ -120,6 +127,9 @@ func (c *DeliverServiceConfig) loadDeliverServiceConfig() {
 	if c.ConnectionTimeout == 0 {
 		c.ConnectionTimeout = DefaultConnectionTimeout
 	}
+
+	c.IsBFT = viper.GetBool("peer.deliveryclient.bft.enabled")
+	c.BlockCensorshipTimeout = viper.GetDuration("peer.deliveryclient.bft.blockCensorshipTimeout")
 
 	c.KeepaliveOptions = comm.DefaultKeepaliveOptions
 	if viper.IsSet("peer.keepalive.deliveryClient.interval") {

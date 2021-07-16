@@ -373,6 +373,16 @@ peer:
         #    to:
         #    caCertsFile:
 
+        # Config parameters for the Byzantine Fault Tolerant (BFT) client implementation
+        bft:
+            # Whether to use a BFT client implementation
+            enabled: true
+
+            # The block censorship timeout. A block censorship suspicion is declared if more than f header receivers
+            # are ahead of the block receiver for a period larger than this timeout.
+            # (f is the number of failures tolerated in the BFT cluster.)
+            blockCensorshipTimeout: 10s
+
     # Type for the local MSP - by default it's of type bccsp
     localMspType: bccsp
 
