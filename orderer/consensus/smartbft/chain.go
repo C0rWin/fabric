@@ -27,6 +27,7 @@ import (
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/core/policy"
+	"github.com/hyperledger/fabric/msp/clock"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/orderer/common/msgprocessor"
 	"github.com/hyperledger/fabric/orderer/consensus"
@@ -276,6 +277,7 @@ func buildVerifier(
 			Logger:        logger,
 		},
 		Ledger: support,
+		clock:  clock.GetOrCreateChannelSyncedClock(support.ChannelID()),
 	}
 }
 

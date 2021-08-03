@@ -23,6 +23,7 @@ import (
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/common/util"
+	"github.com/hyperledger/fabric/msp/clock"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
 	"go.uber.org/zap/zapcore"
@@ -80,6 +81,7 @@ type Verifier struct {
 	Ledger                Ledger
 	Logger                *flogging.FabricLogger
 	ConfigValidator       ConfigValidator
+	clock                 *clock.ChannelSyncedClock // reference to the clock synchronized within the channel
 }
 
 func (v *Verifier) AuxiliaryData(msg []byte) []byte {
@@ -101,7 +103,7 @@ func (v *Verifier) VerifyProposal(proposal types.Proposal) ([]types.RequestInfo,
 		return nil, err
 	}
 
-	if err := verifyTimestamp(block, rtc.TimestampAcceptanceInterval); err != nil {
+	if err := verifyTimestamp(block, rtc.TimestampAcceptanceInterval, v.clock); err != nil {
 		return nil, err
 	}
 
@@ -244,12 +246,21 @@ func verifyHashChain(block *common.Block, prevHeaderHash string) error {
 	return nil
 }
 
-func verifyTimestamp(block *common.Block, timestampAcceptanceInterval time.Duration) error {
-	timestamp := time.Unix(0, int64(block.Header.Timestamp))
+func verifyTimestamp(block *common.Block, timestampAcceptanceInterval time.Duration, clock *clock.ChannelSyncedClock) error {
+	proposalTime := time.Unix(0, int64(block.Header.Timestamp))
 
-	now := time.Now().UTC()
-	if timestamp.Before(now.Add(-timestampAcceptanceInterval)) || timestamp.After(now.Add(timestampAcceptanceInterval)) {
-		return errors.Errorf("blocks timestamp is outside of the time window, timestamp=%v", timestamp)
+	previousTime, err := clock.SyncedTime()
+	if err != nil && block.Header.Number > 1 {
+		return errors.Wrapf(err, "cannot extract previous synced time, block num: %v", block.Header.Number)
+	}
+
+	if previousTime != nil && proposalTime.Before(*previousTime) {
+		return errors.Errorf("proposal's timestamp %v is before previous block's timestamp %v", proposalTime, previousTime)
+	}
+
+	localTime := time.Now().UTC()
+	if proposalTime.Before(localTime.Add(-timestampAcceptanceInterval)) || proposalTime.After(localTime.Add(timestampAcceptanceInterval)) {
+		return errors.Errorf("blocks timestamp is outside of the timestamp acceptance interval, timestamp=%v", proposalTime)
 	}
 	return nil
 }
