@@ -42,6 +42,7 @@ import (
 	"github.com/hyperledger/fabric/internal/pkg/comm"
 	"github.com/hyperledger/fabric/internal/pkg/peer/orderers"
 	"github.com/hyperledger/fabric/msp"
+	"github.com/hyperledger/fabric/msp/clock"
 	mspmgmt "github.com/hyperledger/fabric/msp/mgmt"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
@@ -567,6 +568,13 @@ func (p *Peer) Initialize(
 			peerLogger.Debugf("Error while loading ledger %s with message %s. We continue to the next ledger rather than abort.", cid, err)
 			continue
 		}
+
+		err = setupChannelTime(ledger, cid)
+		if err != nil {
+			peerLogger.Errorf("Failed to setup synced time for channel %s(%+v)", cid, err)
+			continue
+		}
+
 		// Create a chain if we get a valid ledger with config block
 		err = p.createChannel(cid, ledger, deployedCCInfoProvider, legacyLifecycleValidation, newLifecycleValidation)
 		if err != nil {
@@ -581,4 +589,17 @@ func (p *Peer) Initialize(
 
 func (flbs fileLedgerBlockStore) RetrieveBlockByNumber(blockNum uint64) (*common.Block, error) {
 	return flbs.GetBlockByNumber(blockNum)
+}
+
+func setupChannelTime(ledger ledger.PeerLedger, channelID string) error {
+	bcInfo, err := ledger.GetBlockchainInfo()
+	if err != nil {
+		return err
+	}
+
+	block, err := ledger.GetBlockByNumber(bcInfo.Height - 1)
+	if err != nil {
+		return err
+	}
+	return clock.GetOrCreateChannelSyncedClock(channelID).SyncWithBlock(block)
 }

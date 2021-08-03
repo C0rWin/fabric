@@ -16,6 +16,7 @@ import (
 	"github.com/hyperledger/fabric/common/crypto"
 	"github.com/hyperledger/fabric/common/ledger/blockledger"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
+	"github.com/hyperledger/fabric/msp/clock"
 	"github.com/hyperledger/fabric/orderer/common/blockcutter"
 	"github.com/hyperledger/fabric/orderer/common/localconfig"
 	"github.com/hyperledger/fabric/orderer/common/msgprocessor"
@@ -62,6 +63,14 @@ func newChainSupport(
 	// error even if the orderer metadata is an empty byte slice
 	if err != nil {
 		return nil, errors.WithMessagef(err, "error extracting orderer metadata for channel: %s", ledgerResources.ConfigtxValidator().ChannelID())
+	}
+
+	// Setup channel time from last block
+	if lastBlock != nil {
+		err = clock.GetOrCreateChannelSyncedClock(ledgerResources.ConfigtxValidator().ChannelID()).SyncWithBlock(lastBlock)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Construct limited support needed as a parameter for additional support
