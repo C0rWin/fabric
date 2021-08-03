@@ -254,8 +254,8 @@ func verifyTimestamp(block *common.Block, timestampAcceptanceInterval time.Durat
 		return errors.Wrapf(err, "cannot extract previous synced time, block num: %v", block.Header.Number)
 	}
 
-	if previousTime != nil && proposalTime.Before(*previousTime) {
-		return errors.Errorf("proposal's timestamp %v is before previous block's timestamp %v", proposalTime, previousTime)
+	if previousTime != nil && !proposalTime.After(*previousTime) {
+		return errors.Errorf("proposal's timestamp %v is not after previous block's timestamp %v", proposalTime, previousTime)
 	}
 
 	localTime := time.Now().UTC()
