@@ -109,6 +109,13 @@
                       "name": "SHA256"
                     },
                     "version": "0"
+                  },
+                  "TimestampAccuracy": {
+                    "mod_policy": "Admins",
+                    "value": {
+                      "accuracy": "1h"
+                    },
+                    "version": "0"
                   }
                 },
                 "version": "0"

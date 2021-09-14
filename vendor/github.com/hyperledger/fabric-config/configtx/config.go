@@ -33,13 +33,19 @@ import (
 
 // Channel is a channel configuration.
 type Channel struct {
-	Consortium   string
-	Application  Application
-	Orderer      Orderer
-	Consortiums  []Consortium
-	Capabilities []string
-	Policies     map[string]Policy
-	ModPolicy    string
+	Consortium        string
+	Application       Application
+	Orderer           Orderer
+	Consortiums       []Consortium
+	Capabilities      []string
+	Policies          map[string]Policy
+	ModPolicy         string
+	TimestampAccuracy TimestampAccuracy
+}
+
+// TimestampAccuracy is the supposed accuracy of the block's timestamp
+type TimestampAccuracy struct {
+	Accuracy string
 }
 
 // Policy is an expression used to define rules for access to channels, chaincodes, etc.
@@ -275,6 +281,11 @@ func newChannelGroupWithOrderer(channelConfig Channel) (*cb.ConfigGroup, error) 
 	}
 
 	err = setValue(channelGroup, blockDataHashingStructureValue(), AdminsPolicyKey)
+	if err != nil {
+		return nil, err
+	}
+
+	err = setValue(channelGroup, timestampAccuracyValue(channelConfig.TimestampAccuracy.Accuracy), AdminsPolicyKey)
 	if err != nil {
 		return nil, err
 	}

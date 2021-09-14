@@ -155,6 +155,8 @@ func NewChannelGroup(conf *genesisconfig.Profile) (*cb.ConfigGroup, error) {
 
 	addValue(channelGroup, channelconfig.HashingAlgorithmValue(), channelconfig.AdminsPolicyKey)
 	addValue(channelGroup, channelconfig.BlockDataHashingStructureValue(), channelconfig.AdminsPolicyKey)
+	addValue(channelGroup, channelconfig.TimestampAccuracyValue(conf.TimestampAccuracy.Accuracy), channelconfig.AdminsPolicyKey)
+
 	if conf.Orderer != nil && len(conf.Orderer.Addresses) > 0 {
 		addValue(channelGroup, channelconfig.OrdererAddressesValue(conf.Orderer.Addresses), ordererAdminsPolicyName)
 	}

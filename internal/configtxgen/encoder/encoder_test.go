@@ -251,18 +251,22 @@ var _ = Describe("Encoder", func() {
 				Capabilities: map[string]bool{
 					"FakeCapability": true,
 				},
+				TimestampAccuracy: &genesisconfig.TimestampAccuracy{
+					Accuracy: "1h",
+				},
 			}
 		})
 
 		It("translates the config into a config group", func() {
 			cg, err := encoder.NewChannelGroup(conf)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(len(cg.Values)).To(Equal(5))
+			Expect(len(cg.Values)).To(Equal(6))
 			Expect(cg.Values["BlockDataHashingStructure"]).NotTo(BeNil())
 			Expect(cg.Values["Consortium"]).NotTo(BeNil())
 			Expect(cg.Values["Capabilities"]).NotTo(BeNil())
 			Expect(cg.Values["HashingAlgorithm"]).NotTo(BeNil())
 			Expect(cg.Values["OrdererAddresses"]).NotTo(BeNil())
+			Expect(cg.Values["TimestampAccuracy"]).NotTo(BeNil())
 		})
 
 		Context("when the policy definition is bad", func() {
@@ -891,6 +895,9 @@ var _ = Describe("Encoder", func() {
 					},
 					Policies: CreateStandardPolicies(),
 				},
+				TimestampAccuracy: &genesisconfig.TimestampAccuracy{
+					Accuracy: "1h",
+				},
 			}
 
 			var err error
@@ -992,6 +999,9 @@ var _ = Describe("Encoder", func() {
 								},
 							},
 							Policies: CreateStandardPolicies(),
+						},
+						TimestampAccuracy: &genesisconfig.TimestampAccuracy{
+							Accuracy: "1h",
 						},
 					}
 
@@ -1164,6 +1174,9 @@ var _ = Describe("Encoder", func() {
 						},
 						Policies: CreateStandardPolicies(),
 					},
+					TimestampAccuracy: &genesisconfig.TimestampAccuracy{
+						Accuracy: "1h",
+					},
 				}
 
 				sysChannelConf = &genesisconfig.Profile{
@@ -1191,6 +1204,9 @@ var _ = Describe("Encoder", func() {
 								},
 							},
 						},
+					},
+					TimestampAccuracy: &genesisconfig.TimestampAccuracy{
+						Accuracy: "1h",
 					},
 				}
 			})
@@ -1263,6 +1279,9 @@ var _ = Describe("Encoder", func() {
 							},
 						},
 					},
+					TimestampAccuracy: &genesisconfig.TimestampAccuracy{
+						Accuracy: "1h",
+					},
 				}
 			})
 
@@ -1326,6 +1345,9 @@ var _ = Describe("Encoder", func() {
 							},
 						},
 					},
+					TimestampAccuracy: &genesisconfig.TimestampAccuracy{
+						Accuracy: "1h",
+					},
 				}
 
 				var err error
@@ -1348,6 +1370,9 @@ var _ = Describe("Encoder", func() {
 								},
 							},
 						},
+					},
+					TimestampAccuracy: &genesisconfig.TimestampAccuracy{
+						Accuracy: "1h",
 					},
 				})
 				Expect(err).NotTo(HaveOccurred())
@@ -1529,6 +1554,9 @@ var _ = Describe("Encoder", func() {
 						OrdererType: "solo",
 						Policies:    CreateStandardOrdererPolicies(),
 					},
+					TimestampAccuracy: &genesisconfig.TimestampAccuracy{
+						Accuracy: "1h",
+					},
 				}
 			})
 
@@ -1578,6 +1606,9 @@ var _ = Describe("Encoder", func() {
 						OrdererType: "solo",
 						Policies:    CreateStandardOrdererPolicies(),
 					},
+					TimestampAccuracy: &genesisconfig.TimestampAccuracy{
+						Accuracy: "1h",
+					},
 				}
 			})
 
@@ -1609,6 +1640,9 @@ var _ = Describe("Encoder", func() {
 					Orderer: &genesisconfig.Orderer{
 						Policies:    CreateStandardOrdererPolicies(),
 						OrdererType: "solo",
+					},
+					TimestampAccuracy: &genesisconfig.TimestampAccuracy{
+						Accuracy: "1h",
 					},
 				})
 			})

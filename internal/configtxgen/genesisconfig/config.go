@@ -96,12 +96,18 @@ type TopLevel struct {
 // Profile encodes orderer/application configuration combinations for the
 // configtxgen tool.
 type Profile struct {
-	Consortium   string                 `yaml:"Consortium"`
-	Application  *Application           `yaml:"Application"`
-	Orderer      *Orderer               `yaml:"Orderer"`
-	Consortiums  map[string]*Consortium `yaml:"Consortiums"`
-	Capabilities map[string]bool        `yaml:"Capabilities"`
-	Policies     map[string]*Policy     `yaml:"Policies"`
+	Consortium        string                 `yaml:"Consortium"`
+	Application       *Application           `yaml:"Application"`
+	Orderer           *Orderer               `yaml:"Orderer"`
+	Consortiums       map[string]*Consortium `yaml:"Consortiums"`
+	Capabilities      map[string]bool        `yaml:"Capabilities"`
+	Policies          map[string]*Policy     `yaml:"Policies"`
+	TimestampAccuracy *TimestampAccuracy     `yaml:"TimestampAccuracy"`
+}
+
+// TimestampAccuracy encodes the supposed accuracy of the block's timestamp
+type TimestampAccuracy struct {
+	Accuracy string `yaml:"Accuracy"`
 }
 
 // Policy encodes a channel config policy
@@ -281,7 +287,6 @@ func Load(profile string, configPaths ...string) *Profile {
 	result.completeInitialization(filepath.Dir(config.ConfigFileUsed()))
 
 	logger.Infof("Loaded configuration: %s", config.ConfigFileUsed())
-
 	return result
 }
 

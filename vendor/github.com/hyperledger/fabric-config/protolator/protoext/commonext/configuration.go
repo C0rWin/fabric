@@ -88,6 +88,8 @@ func (dccv *DynamicChannelConfigValue) StaticallyOpaqueFieldProto(name string) (
 		return &common.Consortium{}, nil
 	case "Capabilities":
 		return &common.Capabilities{}, nil
+	case "TimestampAccuracy":
+		return &common.TimestampAccuracy{}, nil
 	default:
 		return nil, fmt.Errorf("unknown Channel ConfigValue name: %s", dccv.name)
 	}

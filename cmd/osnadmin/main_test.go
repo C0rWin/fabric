@@ -769,6 +769,11 @@ func blockWithGroups(groups map[string]*cb.ConfigGroup, channelID string) *cb.Bl
 												Addresses: []string{"localhost"},
 											}),
 										},
+										"TimestampAccuracy": {
+											Value: protoutil.MarshalOrPanic(&cb.TimestampAccuracy{
+												Accuracy: "1h",
+											}),
+										},
 									},
 								},
 							},

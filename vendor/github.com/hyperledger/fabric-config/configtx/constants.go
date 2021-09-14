@@ -27,6 +27,9 @@ const (
 	// CapabiltiesKey can be used at the channel, application, and orderer levels.
 	CapabilitiesKey = "Capabilities"
 
+	// TimestampAccuracyKey is the key for the ConfigValue of TimestampAccuracy
+	TimestampAccuracyKey = "TimestampAccuracy"
+
 	// EndpointsKey is the key for the ConfigValue, Endpoints in
 	// a OrdererOrgGroup.
 	EndpointsKey = "Endpoints"

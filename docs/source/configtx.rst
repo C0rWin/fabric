@@ -337,6 +337,7 @@ with different names.
             "BlockHashingDataStructure":common.BlockDataHashingStructure,
             "Consortium":common.Consortium,
             "OrdererAddresses":common.OrdererAddresses,
+            "TimestampAccuracy":common.TimestampAccuracy,
         },
     }
 

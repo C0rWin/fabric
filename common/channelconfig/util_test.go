@@ -96,6 +96,12 @@ func createCfgBlockWithSupportedCapabilities(t *testing.T) *cb.Block {
 		}),
 		ModPolicy: AdminsPolicyKey,
 	}
+	config.ChannelGroup.Values[TimestampAccuracyKey] = &cb.ConfigValue{
+		Value: protoutil.MarshalOrPanic(&cb.TimestampAccuracy{
+			Accuracy: "1h",
+		}),
+		ModPolicy: AdminsPolicyKey,
+	}
 
 	// construct the config for Application group
 	config.ChannelGroup.Groups[ApplicationGroupKey] = protoutil.NewConfigGroup()
@@ -207,6 +213,12 @@ func createCfgBlockWithUnsupportedCapabilities(t *testing.T) *cb.Block {
 	config.ChannelGroup.Values[OrdererAddressesKey] = &cb.ConfigValue{
 		Value: protoutil.MarshalOrPanic(&cb.OrdererAddresses{
 			Addresses: []string{"orderer.example.com"},
+		}),
+		ModPolicy: AdminsPolicyKey,
+	}
+	config.ChannelGroup.Values[TimestampAccuracyKey] = &cb.ConfigValue{
+		Value: protoutil.MarshalOrPanic(&cb.TimestampAccuracy{
+			Accuracy: "1h",
 		}),
 		ModPolicy: AdminsPolicyKey,
 	}

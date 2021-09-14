@@ -9,6 +9,7 @@ package channelconfig
 import (
 	"fmt"
 	"math"
+	"time"
 
 	cb "github.com/hyperledger/fabric-protos-go/common"
 	"github.com/hyperledger/fabric/bccsp"
@@ -38,6 +39,9 @@ const (
 	// CapabilitiesKey is the name of the key which refers to capabilities, it appears at the channel,
 	// application, and orderer levels and this constant is used for all three.
 	CapabilitiesKey = "Capabilities"
+
+	// TimestampAccuracyKey is the name of the key which refers to the supposed accuracy of the block's timestamp
+	TimestampAccuracyKey = "TimestampAccuracy"
 )
 
 // ChannelValues gives read only access to the channel configuration
@@ -52,6 +56,9 @@ type ChannelValues interface {
 
 	// OrdererAddresses returns the list of valid orderer addresses to connect to to invoke Broadcast/Deliver
 	OrdererAddresses() []string
+
+	// TimestampAccuracy returns the supposed accuracy of the block's timestamp
+	TimestampAccuracy() time.Duration
 }
 
 // ChannelProtos is where the proposed configuration is unmarshaled into
@@ -61,6 +68,7 @@ type ChannelProtos struct {
 	OrdererAddresses          *cb.OrdererAddresses
 	Consortium                *cb.Consortium
 	Capabilities              *cb.Capabilities
+	TimestampAccuracy         *cb.TimestampAccuracy
 }
 
 // ChannelConfig stores the channel configuration
@@ -153,6 +161,12 @@ func (cc *ChannelConfig) OrdererAddresses() []string {
 	return cc.protos.OrdererAddresses.Addresses
 }
 
+// TimestampAccuracy returns the supposed accuracy of the block's timestamp
+func (cc *ChannelConfig) TimestampAccuracy() time.Duration {
+	accuracy, _ := time.ParseDuration(cc.protos.TimestampAccuracy.Accuracy)
+	return accuracy
+}
+
 // ConsortiumName returns the name of the consortium this channel was created under
 func (cc *ChannelConfig) ConsortiumName() string {
 	return cc.protos.Consortium.Name
@@ -171,6 +185,7 @@ func (cc *ChannelConfig) Validate(channelCapabilities ChannelCapabilities) error
 	for _, validator := range []func() error{
 		cc.validateHashingAlgorithm,
 		cc.validateBlockDataHashingStructure,
+		cc.validateTimestampAccuracy,
 	} {
 		if err := validator(); err != nil {
 			return err
@@ -208,5 +223,17 @@ func (cc *ChannelConfig) validateOrdererAddresses() error {
 	if len(cc.protos.OrdererAddresses.Addresses) == 0 {
 		return fmt.Errorf("Must set some OrdererAddresses")
 	}
+	return nil
+}
+
+func (cc *ChannelConfig) validateTimestampAccuracy() error {
+	if len(cc.protos.TimestampAccuracy.Accuracy) == 0 {
+		return fmt.Errorf("Must set TimestampAccuracy")
+	}
+
+	if _, err := time.ParseDuration(cc.protos.TimestampAccuracy.Accuracy); err != nil {
+		return errors.Wrap(err, "cannot parse timestamp accuracy")
+	}
+
 	return nil
 }

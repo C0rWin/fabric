@@ -1062,3 +1062,14 @@ func blockDataHashingStructureValue() *standardConfigValue {
 		},
 	}
 }
+
+// timestampAccuracyValue returns the config value of the supposed accuracy of the block's timestamp.
+// It is a value for the /Channel group.
+func timestampAccuracyValue(accuracy string) *standardConfigValue {
+	return &standardConfigValue{
+		key: TimestampAccuracyKey,
+		value: &cb.TimestampAccuracy{
+			Accuracy: accuracy,
+		},
+	}
+}

@@ -97,6 +97,8 @@ Orderer: &OrdererDefaults
         <<: *OrdererCapabilities
 
 Channel: &ChannelDefaults
+    TimestampAccuracy:
+        Accuracy: 1h
     Policies:
         Readers:
             Type: ImplicitMeta

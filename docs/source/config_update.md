@@ -867,6 +867,13 @@ To see what the configuration file of an application channel looks like after it
             ]
           },
           "version": "0"
+        },
+        "TimestampAccuracy": {
+          "mod_policy": "/Channel/Orderer/Admins",
+          "value": {
+            "accuracy": "1h"
+          },
+          "version": "0"
         }
       },
       "version": "0"

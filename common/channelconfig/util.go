@@ -109,6 +109,17 @@ func OrdererAddressesValue(addresses []string) *StandardConfigValue {
 	}
 }
 
+// TimestampAccuracyValue returns the config definition of the supposed accuracy of the block's timestamp
+// It is a value for the /Channel group.
+func TimestampAccuracyValue(accuracy string) *StandardConfigValue {
+	return &StandardConfigValue{
+		key: TimestampAccuracyKey,
+		value: &cb.TimestampAccuracy{
+			Accuracy: accuracy,
+		},
+	}
+}
+
 // ConsensusTypeValue returns the config definition for the orderer consensus type.
 // It is a value for the /Channel/Orderer group.
 func ConsensusTypeValue(consensusType string, consensusMetadata []byte) *StandardConfigValue {

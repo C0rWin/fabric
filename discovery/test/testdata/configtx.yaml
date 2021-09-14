@@ -280,6 +280,9 @@ Orderer: &OrdererDefaults
 #
 ################################################################################
 Channel: &ChannelDefaults
+    # TimestampAccuracy defines the supposed accuracy of the block's timestamp 
+    TimestampAccuracy:
+        Accuracy: 1h
     # Policies defines the set of policies at this level of the config tree
     # For Channel policies, their canonical path is
     #   /Channel/<PolicyName>

@@ -72,6 +72,9 @@ type Channel interface {
 
 	// Capabilities defines the capabilities for a channel
 	Capabilities() ChannelCapabilities
+
+	// TimestampAccuracy returns the supposed accuracy of the block's timestamp
+	TimestampAccuracy() time.Duration
 }
 
 // Consortiums represents the set of consortiums serviced by an ordering service
