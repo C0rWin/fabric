@@ -17,7 +17,7 @@ import (
 func TestConsortiumConfig(t *testing.T) {
 	cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
 	require.NoError(t, err)
-	cc, err := NewConsortiumConfig(&cb.ConfigGroup{}, NewMSPConfigHandler(msp.MSPv1_0, cryptoProvider))
+	cc, err := NewConsortiumConfig(&cb.ConfigGroup{}, NewMSPConfigHandler(msp.MSPv1_0, cryptoProvider, nil))
 	require.NoError(t, err)
 	orgs := cc.Organizations()
 	require.Equal(t, 0, len(orgs))

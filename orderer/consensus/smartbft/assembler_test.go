@@ -123,7 +123,8 @@ func makeTx(headerType int32) []byte {
 func makeNonConfigBlock(seq, lastConfigSeq uint64) *common.Block {
 	return &common.Block{
 		Header: &common.BlockHeader{
-			Number: seq,
+			Number:    seq,
+			Timestamp: uint64(time.Now().UnixNano()),
 		},
 		Data: &common.BlockData{
 			Data: [][]byte{nonConfigTx},
@@ -140,7 +141,8 @@ func makeNonConfigBlock(seq, lastConfigSeq uint64) *common.Block {
 func makeConfigBlock(seq uint64) *common.Block {
 	return &common.Block{
 		Header: &common.BlockHeader{
-			Number: seq,
+			Number:    seq,
+			Timestamp: uint64(time.Now().UnixNano()),
 		},
 		Data: &common.BlockData{
 			Data: [][]byte{protoutil.MarshalOrPanic(&common.Envelope{

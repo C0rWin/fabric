@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/golang/protobuf/proto"
 	cb "github.com/hyperledger/fabric-protos-go/common"
@@ -24,6 +25,7 @@ import (
 	"github.com/hyperledger/fabric/common/ledger/blockledger"
 	"github.com/hyperledger/fabric/common/metrics"
 	"github.com/hyperledger/fabric/internal/pkg/identity"
+	"github.com/hyperledger/fabric/msp/clock"
 	"github.com/hyperledger/fabric/orderer/common/blockcutter"
 	"github.com/hyperledger/fabric/orderer/common/cluster"
 	"github.com/hyperledger/fabric/orderer/common/filerepo"
@@ -166,6 +168,15 @@ func InitJoinBlockFileRepo(config *localconfig.TopLevel) (*filerepo.Repo, error)
 }
 
 func (r *Registrar) Initialize(consenters map[string]consensus.Consenter) {
+	clock.SetTimestampAccuracyProvider(func(cid string) (*time.Duration, error) {
+		channelConfig, ok := r.chains[cid]
+		if !ok {
+			return nil, fmt.Errorf("channel with id `%s` does not exist", cid)
+		}
+		accuracy := channelConfig.ChannelConfig().TimestampAccuracy()
+		return &accuracy, nil
+	})
+
 	r.init(consenters)
 
 	r.lock.Lock()

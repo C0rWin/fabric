@@ -27,7 +27,7 @@ func TestMSPConfigManager(t *testing.T) {
 	mspVers := []msp.MSPVersion{msp.MSPv1_0, msp.MSPv1_1}
 
 	for _, ver := range mspVers {
-		mspCH := NewMSPConfigHandler(ver, factory.GetDefault())
+		mspCH := NewMSPConfigHandler(ver, factory.GetDefault(), nil)
 
 		_, err = mspCH.ProposeMSP(conf)
 		require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestMSPConfigManager(t *testing.T) {
 func TestMSPConfigFailure(t *testing.T) {
 	cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
 	require.NoError(t, err)
-	mspCH := NewMSPConfigHandler(msp.MSPv1_0, cryptoProvider)
+	mspCH := NewMSPConfigHandler(msp.MSPv1_0, cryptoProvider, nil)
 
 	// begin/propose/commit
 	t.Run("Bad proto", func(t *testing.T) {

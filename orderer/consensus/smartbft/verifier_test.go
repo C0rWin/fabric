@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/SmartBFT-Go/consensus/pkg/types"
 	"github.com/SmartBFT-Go/consensus/smartbftprotos"
@@ -19,6 +20,7 @@ import (
 	"github.com/hyperledger/fabric-protos-go/common"
 	"github.com/hyperledger/fabric-protos-go/msp"
 	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric/msp/clock"
 	"github.com/hyperledger/fabric/orderer/consensus/smartbft"
 	"github.com/hyperledger/fabric/orderer/consensus/smartbft/mocks"
 	"github.com/hyperledger/fabric/protoutil"
@@ -420,6 +422,13 @@ func TestVerifyProposal(t *testing.T) {
 
 	lastHash := hex.EncodeToString(protoutil.BlockHeaderHash(lastBlock.Header))
 
+	clock.SetTimestampAccuracyProvider(func(cid string) (*time.Duration, error) {
+		accuracy := time.Hour
+		return &accuracy, nil
+	})
+	syncedClock := clock.GetOrCreateChannelSyncedClock("test")
+	syncedClock.SyncWithBlock(lastBlock)
+
 	for _, testCase := range []struct {
 		description                 string
 		verificationSequence        uint64
@@ -587,6 +596,7 @@ func TestVerifyProposal(t *testing.T) {
 			proposal.Payload = tuple.ToBytes()
 
 			runtimeConfig = &atomic.Value{}
+			rtc.TimestampAcceptanceInterval = time.Hour
 			rtc.LastConfigBlock = lastConfigBlock
 			runtimeConfig.Store(rtc)
 			v := &smartbft.Verifier{
@@ -597,6 +607,7 @@ func TestVerifyProposal(t *testing.T) {
 				AccessController:      ac,
 				ConsenterVerifier:     cv,
 				ReqInspector:          reqInspector,
+				Clock:                 syncedClock,
 			}
 
 			reqInfo, err := v.VerifyProposal(proposal)

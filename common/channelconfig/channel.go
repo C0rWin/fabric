@@ -85,7 +85,7 @@ type ChannelConfig struct {
 }
 
 // NewChannelConfig creates a new ChannelConfig
-func NewChannelConfig(channelGroup *cb.ConfigGroup, bccsp bccsp.BCCSP) (*ChannelConfig, error) {
+func NewChannelConfig(channelGroup *cb.ConfigGroup, bccsp bccsp.BCCSP, channelID *string) (*ChannelConfig, error) {
 	cc := &ChannelConfig{
 		protos: &ChannelProtos{},
 	}
@@ -100,7 +100,7 @@ func NewChannelConfig(channelGroup *cb.ConfigGroup, bccsp bccsp.BCCSP) (*Channel
 		return nil, err
 	}
 
-	mspConfigHandler := NewMSPConfigHandler(capabilities.MSPVersion(), bccsp)
+	mspConfigHandler := NewMSPConfigHandler(capabilities.MSPVersion(), bccsp, channelID)
 
 	var err error
 	for groupName, group := range channelGroup.Groups {

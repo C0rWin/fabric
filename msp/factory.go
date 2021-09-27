@@ -8,6 +8,7 @@ package msp
 
 import (
 	"github.com/hyperledger/fabric/bccsp"
+	"github.com/hyperledger/fabric/msp/clock"
 	"github.com/pkg/errors"
 )
 
@@ -43,6 +44,27 @@ type BCCSPNewOpts struct {
 // IdemixNewOpts contains the options to instantiate a new Idemix-based MSP
 type IdemixNewOpts struct {
 	NewBaseOpts
+}
+
+// NewWithClock create a new MSP instance with channel synced clock depending on the passed Opts
+func NewWithClock(opts NewOpts, cryptoProvider bccsp.BCCSP, clock *clock.ChannelSyncedClock) (MSP, error) {
+	switch opts.(type) {
+	case *BCCSPNewOpts:
+		switch opts.GetVersion() {
+		case MSPv1_0:
+			return newBccspMspWithClock(MSPv1_0, cryptoProvider, clock)
+		case MSPv1_1:
+			return newBccspMspWithClock(MSPv1_1, cryptoProvider, clock)
+		case MSPv1_3:
+			return newBccspMspWithClock(MSPv1_3, cryptoProvider, clock)
+		case MSPv1_4_3:
+			return newBccspMspWithClock(MSPv1_4_3, cryptoProvider, clock)
+		default:
+			return nil, errors.Errorf("Invalid *BCCSPNewOpts. Version not recognized [%v]", opts.GetVersion())
+		}
+	default:
+		return New(opts, cryptoProvider)
+	}
 }
 
 // New create a new MSP instance depending on the passed Opts

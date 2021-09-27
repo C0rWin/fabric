@@ -2,6 +2,7 @@ package clock
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -10,10 +11,17 @@ import (
 )
 
 var (
-	mutex  sync.Mutex
-	clocks map[string]*ChannelSyncedClock = make(map[string]*ChannelSyncedClock)
-	logger *flogging.FabricLogger         = flogging.MustGetLogger("channelclock")
+	mutex             sync.Mutex
+	clocks            map[string]*ChannelSyncedClock = make(map[string]*ChannelSyncedClock)
+	logger            *flogging.FabricLogger         = flogging.MustGetLogger("channelclock")
+	timestampAccuracy func(cid string) (*time.Duration, error)
 )
+
+func SetTimestampAccuracyProvider(timestampAccuracyProvider func(cid string) (*time.Duration, error)) error {
+	timestampAccuracy = timestampAccuracyProvider
+	logger.Infof("timestamp accuracy provider initialized")
+	return nil
+}
 
 type ChannelSyncedClock struct {
 	channelID  string
@@ -57,14 +65,27 @@ func Reset(channelID string) {
 	clocks[channelID].syncedTime = nil
 }
 
-func (c *ChannelSyncedClock) SyncedTime() (*time.Time, error) {
+func (c *ChannelSyncedClock) SyncedTime() (*time.Time, *time.Duration, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	if c.syncedTime == nil {
 		logger.Infof("time has not been synced yet, channelID: %s", c.channelID)
-		return nil, errors.New("time has not been synced yet")
+		return nil, nil, errors.New("time has not been synced yet")
 	}
-	return c.syncedTime, nil
+
+	if timestampAccuracy == nil {
+		logger.Infof("timestamp accuracy provider has not been initialized yet")
+		return nil, nil, errors.New("timestamp accuracy provider has not been initialized yet")
+	}
+
+	accuracy, err := timestampAccuracy(c.channelID)
+	if err != nil {
+		logger.Infof("failed to get timestamp accuracy: %v", err)
+		return nil, nil, fmt.Errorf("failed to get timestamp accuracy: %v", err)
+	}
+
+	logger.Infof("current synced time: %v, accuracy: %v, channelID: %s", c.syncedTime, accuracy, c.channelID)
+	return c.syncedTime, accuracy, nil
 }
 
 func (c *ChannelSyncedClock) SyncWithBlock(block *common.Block) error {
@@ -85,6 +106,7 @@ func (c *ChannelSyncedClock) SyncWithBlock(block *common.Block) error {
 		return errors.New("current synced time is before last synced time")
 	}
 	c.syncedTime = &time
-	logger.Infof("current synced time: %v, channelID: %s", time, c.channelID)
+
+	logger.Infof("new synced time: %v, channelID: %s", time, c.channelID)
 	return nil
 }

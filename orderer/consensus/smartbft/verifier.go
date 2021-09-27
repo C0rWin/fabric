@@ -81,7 +81,7 @@ type Verifier struct {
 	Ledger                Ledger
 	Logger                *flogging.FabricLogger
 	ConfigValidator       ConfigValidator
-	clock                 *clock.ChannelSyncedClock // reference to the clock synchronized within the channel
+	Clock                 *clock.ChannelSyncedClock // reference to the clock synchronized within the channel
 }
 
 func (v *Verifier) AuxiliaryData(msg []byte) []byte {
@@ -103,7 +103,7 @@ func (v *Verifier) VerifyProposal(proposal types.Proposal) ([]types.RequestInfo,
 		return nil, err
 	}
 
-	if err := verifyTimestamp(block, rtc.TimestampAcceptanceInterval, v.clock); err != nil {
+	if err := verifyTimestamp(block, rtc.TimestampAcceptanceInterval, v.Clock); err != nil {
 		return nil, err
 	}
 
@@ -249,7 +249,7 @@ func verifyHashChain(block *common.Block, prevHeaderHash string) error {
 func verifyTimestamp(block *common.Block, timestampAcceptanceInterval time.Duration, clock *clock.ChannelSyncedClock) error {
 	proposalTime := time.Unix(0, int64(block.Header.Timestamp))
 
-	previousTime, err := clock.SyncedTime()
+	previousTime, _, err := clock.SyncedTime()
 	if err != nil && block.Header.Number > 1 {
 		return errors.Wrapf(err, "cannot extract previous synced time, block num: %v", block.Header.Number)
 	}

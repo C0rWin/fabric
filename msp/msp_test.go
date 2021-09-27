@@ -1194,7 +1194,7 @@ func TestIdentityExpired(t *testing.T) {
 
 	err = thisMSP.Setup(conf)
 	if err != nil {
-		require.Contains(t, err.Error(), "certificate has expired or is not yet valid")
+		require.Contains(t, err.Error(), "signing identity expired")
 	} else {
 		t.Fatal("Should have failed when loading expired certs")
 	}

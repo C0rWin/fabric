@@ -147,6 +147,15 @@ func newBccspMsp(version MSPVersion, defaultBCCSP bccsp.BCCSP) (MSP, error) {
 	return theMsp, nil
 }
 
+func newBccspMspWithClock(version MSPVersion, defaultBCCSP bccsp.BCCSP, clock *clock.ChannelSyncedClock) (MSP, error) {
+	msp, err := newBccspMsp(version, defaultBCCSP)
+	if err != nil {
+		return msp, err
+	}
+	msp.(*bccspmsp).clock = clock
+	return msp, err
+}
+
 // NewBccspMspWithKeyStore allows to create a BCCSP-based MSP whose underlying
 // crypto material is available through the passed keystore
 func NewBccspMspWithKeyStore(version MSPVersion, keyStore bccsp.KeyStore, bccsp bccsp.BCCSP) (MSP, error) {

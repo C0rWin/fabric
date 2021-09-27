@@ -94,6 +94,7 @@ import (
 	"github.com/hyperledger/fabric/internal/peer/version"
 	"github.com/hyperledger/fabric/internal/pkg/comm"
 	"github.com/hyperledger/fabric/msp"
+	"github.com/hyperledger/fabric/msp/clock"
 	"github.com/hyperledger/fabric/msp/mgmt"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/pkg/errors"
@@ -429,6 +430,15 @@ func serve(args []string) error {
 	txProcessors := map[common.HeaderType]ledger.CustomTxProcessor{
 		common.HeaderType_CONFIG: &peer.ConfigTxProcessor{},
 	}
+
+	clock.SetTimestampAccuracyProvider(func(cid string) (*time.Duration, error) {
+		channelConfig := peerInstance.GetChannelConfig(cid)
+		if channelConfig == nil {
+			return nil, fmt.Errorf("channel with id `%s` does not exist", cid)
+		}
+		accuracy := channelConfig.ChannelConfig().TimestampAccuracy()
+		return &accuracy, nil
+	})
 
 	peerInstance.LedgerMgr = ledgermgmt.NewLedgerMgr(
 		&ledgermgmt.Initializer{

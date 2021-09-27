@@ -292,12 +292,10 @@ func (msp *bccspmsp) getValidityOptsForCert(cert *x509.Certificate) x509.VerifyO
 	tempOpts.Intermediates = msp.opts.Intermediates
 	tempOpts.KeyUsages = msp.opts.KeyUsages
 
-	//tempOpts.CurrentTime = cert.NotBefore.Add(time.Second)
+	tempOpts.CurrentTime = cert.NotBefore.Add(time.Second)
 	if msp.clock != nil {
-		currentTime, err := msp.clock.SyncedTime()
-		if err != nil {
-			tempOpts.CurrentTime = cert.NotBefore.Add(time.Second)
-		} else {
+		currentTime, _, err := msp.clock.SyncedTime()
+		if err == nil {
 			tempOpts.CurrentTime = *currentTime
 		}
 	}

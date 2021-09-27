@@ -277,7 +277,7 @@ func buildVerifier(
 			Logger:        logger,
 		},
 		Ledger: support,
-		clock:  clock.GetOrCreateChannelSyncedClock(support.ChannelID()),
+		Clock:  clock.GetOrCreateChannelSyncedClock(support.ChannelID()),
 	}
 }
 

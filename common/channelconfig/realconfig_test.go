@@ -41,7 +41,7 @@ func TestOrgSpecificOrdererEndpoints(t *testing.T) {
 
 		cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
 		require.NoError(t, err)
-		_, err = channelconfig.NewChannelConfig(cg, cryptoProvider)
+		_, err = channelconfig.NewChannelConfig(cg, cryptoProvider, nil)
 		require.EqualError(t, err, "could not create channel Orderer sub-group config: Orderer Org SampleOrg cannot contain endpoints value until V1_4_2+ capabilities have been enabled")
 	})
 
@@ -56,7 +56,7 @@ func TestOrgSpecificOrdererEndpoints(t *testing.T) {
 
 		cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
 		require.NoError(t, err)
-		_, err = channelconfig.NewChannelConfig(cg, cryptoProvider)
+		_, err = channelconfig.NewChannelConfig(cg, cryptoProvider, nil)
 		require.EqualError(t, err, "Must set some OrdererAddresses")
 	})
 
@@ -70,7 +70,7 @@ func TestOrgSpecificOrdererEndpoints(t *testing.T) {
 
 		cryptoProvider, err := sw.NewDefaultSecurityLevelWithKeystore(sw.NewDummyKeyStore())
 		require.NoError(t, err)
-		cc, err := channelconfig.NewChannelConfig(cg, cryptoProvider)
+		cc, err := channelconfig.NewChannelConfig(cg, cryptoProvider, nil)
 		require.NoError(t, err)
 
 		err = cc.Validate(cc.Capabilities())

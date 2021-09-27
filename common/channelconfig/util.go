@@ -315,7 +315,7 @@ func extractChannelConfig(block *cb.Block, bccsp bccsp.BCCSP) (*ChannelConfig, e
 		return nil, errors.Errorf("invalid configuration block, missing %s configuration group", ApplicationGroupKey)
 	}
 
-	cc, err := NewChannelConfig(configEnv.Config.ChannelGroup, bccsp)
+	cc, err := NewChannelConfig(configEnv.Config.ChannelGroup, bccsp, nil)
 	if err != nil {
 		return nil, errors.WithMessage(err, "no valid channel configuration found")
 	}

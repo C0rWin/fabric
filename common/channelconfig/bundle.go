@@ -185,7 +185,7 @@ func NewBundle(channelID string, config *cb.Config, bccsp bccsp.BCCSP) (*Bundle,
 		return nil, err
 	}
 
-	channelConfig, err := NewChannelConfig(config.ChannelGroup, bccsp)
+	channelConfig, err := NewChannelConfig(config.ChannelGroup, bccsp, &channelID)
 	if err != nil {
 		return nil, errors.Wrap(err, "initializing channelconfig failed")
 	}

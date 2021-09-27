@@ -29,6 +29,7 @@ func TestChannelConfig(t *testing.T) {
 	cc, err := NewChannelConfig(
 		&cb.ConfigGroup{Groups: map[string]*cb.ConfigGroup{"UnknownGroupKey": {}}},
 		cryptoProvider,
+		nil,
 	)
 	require.Error(t, err)
 	require.Nil(t, cc)
