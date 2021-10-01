@@ -18,6 +18,11 @@ import (
 	"github.com/pkg/errors"
 )
 
+type VerifyOptions struct {
+	x509.VerifyOptions
+	CurrentTimeAccuracy *time.Duration
+}
+
 func (msp *bccspmsp) validateIdentity(id *identity) error {
 	id.validationMutex.Lock()
 	defer id.validationMutex.Unlock()
@@ -72,7 +77,7 @@ func (msp *bccspmsp) validateTLSCAIdentity(cert *x509.Certificate, opts *x509.Ve
 		return errors.New("Only CA identities can be validated")
 	}
 
-	validationChain, err := msp.getUniqueValidationChain(cert, *opts)
+	validationChain, err := msp.getUniqueValidationChain(cert, VerifyOptions{*opts, nil})
 	if err != nil {
 		return errors.WithMessage(err, "could not obtain certification chain")
 	}
@@ -280,13 +285,13 @@ func (msp *bccspmsp) validateIdentityOUsV142(id *identity) error {
 	return nil
 }
 
-func (msp *bccspmsp) getValidityOptsForCert(cert *x509.Certificate) x509.VerifyOptions {
+func (msp *bccspmsp) getValidityOptsForCert(cert *x509.Certificate) VerifyOptions {
 	// First copy the opts to override the CurrentTime field
 	// in order to make the certificate passing the expiration test
 	// independently from the real local current time.
 	// This is a temporary workaround for FAB-3678
 
-	var tempOpts x509.VerifyOptions
+	var tempOpts VerifyOptions
 	tempOpts.Roots = msp.opts.Roots
 	tempOpts.DNSName = msp.opts.DNSName
 	tempOpts.Intermediates = msp.opts.Intermediates
@@ -294,9 +299,10 @@ func (msp *bccspmsp) getValidityOptsForCert(cert *x509.Certificate) x509.VerifyO
 
 	tempOpts.CurrentTime = cert.NotBefore.Add(time.Second)
 	if msp.clock != nil {
-		currentTime, _, err := msp.clock.SyncedTime()
+		currentTime, accuracy, err := msp.clock.SyncedTime()
 		if err == nil {
 			tempOpts.CurrentTime = *currentTime
+			tempOpts.CurrentTimeAccuracy = accuracy
 		}
 	}
 

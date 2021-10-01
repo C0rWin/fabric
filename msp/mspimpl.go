@@ -13,7 +13,9 @@ import (
 	"encoding/asn1"
 	"encoding/hex"
 	"encoding/pem"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/golang/protobuf/proto"
 	m "github.com/hyperledger/fabric-protos-go/msp"
@@ -733,12 +735,12 @@ func (msp *bccspmsp) getCertificationChainForBCCSPIdentity(id *identity) ([]*x50
 	return msp.getValidationChain(id.cert, false)
 }
 
-func (msp *bccspmsp) getUniqueValidationChain(cert *x509.Certificate, opts x509.VerifyOptions) ([]*x509.Certificate, error) {
+func (msp *bccspmsp) getUniqueValidationChain(cert *x509.Certificate, opts VerifyOptions) ([]*x509.Certificate, error) {
 	// ask golang to validate the cert for us based on the options that we've built at setup time
 	if msp.opts == nil {
 		return nil, errors.New("the supplied identity has no verify options")
 	}
-	validationChains, err := cert.Verify(opts)
+	validationChains, err := cert.Verify(opts.VerifyOptions)
 	if err != nil {
 		return nil, errors.WithMessage(err, "the supplied identity is not valid")
 	}
@@ -754,6 +756,25 @@ func (msp *bccspmsp) getUniqueValidationChain(cert *x509.Certificate, opts x509.
 	err = verifyLegacyNameConstraints(validationChains[0])
 	if err != nil {
 		return nil, errors.WithMessage(err, "the supplied identity is not valid")
+	}
+
+	if opts.CurrentTimeAccuracy != nil {
+		for _, cert := range validationChains[0] {
+			now := opts.CurrentTime
+			if now.Before(cert.NotBefore.Add(*opts.CurrentTimeAccuracy)) {
+				return nil, x509.CertificateInvalidError{
+					Cert:   cert,
+					Reason: x509.Expired,
+					Detail: fmt.Sprintf("current time %s is before %s", now.Format(time.RFC3339), cert.NotBefore.Add(*opts.CurrentTimeAccuracy).Format(time.RFC3339)),
+				}
+			} else if now.After(cert.NotAfter.Add(-*opts.CurrentTimeAccuracy)) {
+				return nil, x509.CertificateInvalidError{
+					Cert:   cert,
+					Reason: x509.Expired,
+					Detail: fmt.Sprintf("current time %s is after %s", now.Format(time.RFC3339), cert.NotAfter.Add(-*opts.CurrentTimeAccuracy).Format(time.RFC3339)),
+				}
+			}
+		}
 	}
 
 	return validationChains[0], nil

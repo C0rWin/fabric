@@ -115,7 +115,7 @@ Organizations:{{ range .PeerOrgs }}
 
 Channel: &ChannelDefaults
   TimestampAccuracy:
-    Accuracy: 1h
+    Accuracy: 1ms
   Capabilities:
     V2_0: true
   Policies: &DefaultPolicies
