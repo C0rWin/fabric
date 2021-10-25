@@ -27,12 +27,14 @@ import (
 	"time"
 
 	"github.com/golang/protobuf/proto"
+	"github.com/hyperledger/fabric-protos-go/common"
 	"github.com/hyperledger/fabric-protos-go/msp"
 	"github.com/hyperledger/fabric/bccsp"
 	"github.com/hyperledger/fabric/bccsp/factory"
 	"github.com/hyperledger/fabric/bccsp/sw"
 	"github.com/hyperledger/fabric/bccsp/utils"
 	"github.com/hyperledger/fabric/core/config/configtest"
+	"github.com/hyperledger/fabric/msp/clock"
 	"github.com/hyperledger/fabric/protoutil"
 	"github.com/stretchr/testify/require"
 )
@@ -1586,4 +1588,103 @@ func TestProviderTypeToString(t *testing.T) {
 	// Check that the provider type is not found
 	pt = ProviderTypeToString(OTHER)
 	require.Equal(t, "", pt)
+}
+
+func TestCertificateExpirationWithoutClock(t *testing.T) {
+	localMspWithClock, err := newBccspMsp(MSPv1_0, factory.GetDefault())
+	require.NoError(t, err)
+
+	mspDir := configtest.GetDevMspDir()
+	conf, err = GetLocalMspConfig(mspDir, nil, "SampleOrg")
+	require.NoError(t, err)
+
+	err = localMspWithClock.Setup(conf)
+	require.NoError(t, err)
+
+	id, err := localMspWithClock.GetDefaultSigningIdentity()
+	require.NoError(t, err)
+
+	notBefore := id.(*signingidentity).identity.cert.NotBefore
+	notAfter := id.(*signingidentity).identity.cert.NotAfter
+
+	testCases := []struct {
+		channelTime  time.Time
+		errorMessage string
+	}{
+		{notBefore.Add(-time.Hour), ""}, // t < NotBefore
+		{notBefore, ""},                 // t == NotBefore
+		{time.Now(), ""},                // NotBefore < t < NotAfter
+		{notAfter, ""},                  // t == NotAfter
+		{notAfter.Add(time.Hour), ""},   // t > NotAfter
+	}
+	for _, testCase := range testCases {
+		require.NoError(t, err)
+
+		err = id.Validate()
+		if testCase.errorMessage == "" {
+			require.NoError(t, err)
+		} else {
+			require.Error(t, err)
+			require.ErrorContains(t, err, testCase.errorMessage)
+		}
+	}
+}
+
+func TestCertificateExpirationWithClock(t *testing.T) {
+	channelID := "some-channel-id"
+	accuracy := time.Hour
+	clock.SetTimestampAccuracyProvider(func(cid string) (*time.Duration, error) {
+		accuracy := accuracy
+		return &accuracy, nil
+	})
+
+	c := clock.GetOrCreateChannelSyncedClock(channelID)
+
+	localMspWithClock, err := newBccspMspWithClock(MSPv1_0, factory.GetDefault(), c)
+	require.NoError(t, err)
+
+	mspDir := configtest.GetDevMspDir()
+	conf, err = GetLocalMspConfig(mspDir, nil, "SampleOrg")
+	require.NoError(t, err)
+
+	err = localMspWithClock.Setup(conf)
+	require.NoError(t, err)
+
+	id, err := localMspWithClock.GetDefaultSigningIdentity()
+	require.NoError(t, err)
+
+	notBefore := id.(*signingidentity).identity.cert.NotBefore
+	notAfter := id.(*signingidentity).identity.cert.NotAfter
+
+	testCases := []struct {
+		channelTime  time.Time
+		errorMessage string
+	}{
+		{notBefore.Add(-time.Hour), "is before"},                    // t < NotBefore
+		{notBefore, "is before min allowed time"},                   // t == NotBefore
+		{notBefore.Add(accuracy / 2), "is before min allowed time"}, // NotBefore < t < NotBefore + accuracy
+		{notBefore.Add(accuracy), ""},                               // t == NotBefore + accuracy
+		{time.Now(), ""},                                            // NotBefore + accuracy < t < NotAfter - accuracy
+		{notAfter.Add(-accuracy), ""},                               // t == NotAfter - accuracy
+		{notAfter.Add(-accuracy / 2), "is after max allowed time"},  // NotAfter - accuracy < t < NotAfter
+		{notAfter, "is after max allowed time"},                     // t == NotAfter
+		{notAfter.Add(time.Hour), "is after"},                       // t > NotAfter
+	}
+	for _, testCase := range testCases {
+		err = c.SyncWithBlock(&common.Block{
+			Header: &common.BlockHeader{
+				Number:    1,
+				Timestamp: uint64(testCase.channelTime.UnixNano()),
+			},
+		})
+		require.NoError(t, err)
+
+		err = id.Validate()
+		if testCase.errorMessage == "" {
+			require.NoError(t, err)
+		} else {
+			require.Error(t, err)
+			require.ErrorContains(t, err, testCase.errorMessage)
+		}
+	}
 }

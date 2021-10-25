@@ -765,13 +765,13 @@ func (msp *bccspmsp) getUniqueValidationChain(cert *x509.Certificate, opts Verif
 				return nil, x509.CertificateInvalidError{
 					Cert:   cert,
 					Reason: x509.Expired,
-					Detail: fmt.Sprintf("current time %s is before %s", now.Format(time.RFC3339), cert.NotBefore.Add(*opts.CurrentTimeAccuracy).Format(time.RFC3339)),
+					Detail: fmt.Sprintf("current time %s is before min allowed time: %s", now.Format(time.RFC3339), cert.NotBefore.Add(*opts.CurrentTimeAccuracy).Format(time.RFC3339)),
 				}
 			} else if now.After(cert.NotAfter.Add(-*opts.CurrentTimeAccuracy)) {
 				return nil, x509.CertificateInvalidError{
 					Cert:   cert,
 					Reason: x509.Expired,
-					Detail: fmt.Sprintf("current time %s is after %s", now.Format(time.RFC3339), cert.NotAfter.Add(-*opts.CurrentTimeAccuracy).Format(time.RFC3339)),
+					Detail: fmt.Sprintf("current time %s is after max allowed time: %s", now.Format(time.RFC3339), cert.NotAfter.Add(-*opts.CurrentTimeAccuracy).Format(time.RFC3339)),
 				}
 			}
 		}

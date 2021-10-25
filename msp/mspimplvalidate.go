@@ -27,12 +27,13 @@ func (msp *bccspmsp) validateIdentity(id *identity) error {
 	id.validationMutex.Lock()
 	defer id.validationMutex.Unlock()
 
+	// After adding a certificate expiration check, validation result cannot be cached.
 	// return cached validation value if already validated
-	if id.validated {
-		return id.validationErr
-	}
+	// if id.validated {
+	// 	return id.validationErr
+	// }
 
-	id.validated = true
+	// id.validated = true
 
 	validationChain, err := msp.getCertificationChainForBCCSPIdentity(id)
 	if err != nil {
