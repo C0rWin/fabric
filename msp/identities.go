@@ -42,14 +42,6 @@ type identity struct {
 	// validationMutex is used to synchronise memory operation
 	// over validated and validationErr
 	validationMutex sync.Mutex
-
-	// validated is true when the validateIdentity function
-	// has been called on this instance
-	validated bool
-
-	// validationErr contains the validation error for this
-	// instance. It can be read if validated is true
-	validationErr error
 }
 
 func newIdentity(cert *x509.Certificate, pk bccsp.Key, msp *bccspmsp) (Identity, error) {

@@ -27,30 +27,19 @@ func (msp *bccspmsp) validateIdentity(id *identity) error {
 	id.validationMutex.Lock()
 	defer id.validationMutex.Unlock()
 
-	// After adding a certificate expiration check, validation result cannot be cached.
-	// return cached validation value if already validated
-	// if id.validated {
-	// 	return id.validationErr
-	// }
-
-	// id.validated = true
-
 	validationChain, err := msp.getCertificationChainForBCCSPIdentity(id)
 	if err != nil {
-		id.validationErr = errors.WithMessage(err, "could not obtain certification chain")
-		return id.validationErr
+		return errors.WithMessage(err, "could not obtain certification chain")
 	}
 
 	err = msp.validateIdentityAgainstChain(id, validationChain)
 	if err != nil {
-		id.validationErr = errors.WithMessage(err, "could not validate identity against certification chain")
-		return id.validationErr
+		return errors.WithMessage(err, "could not validate identity against certification chain")
 	}
 
 	err = msp.internalValidateIdentityOusFunc(id)
 	if err != nil {
-		id.validationErr = errors.WithMessage(err, "could not validate identity's OUs")
-		return id.validationErr
+		return errors.WithMessage(err, "could not validate identity's OUs")
 	}
 
 	return nil
