@@ -65,18 +65,36 @@ func Reset(channelID string) {
 	clocks[channelID].syncedTime = nil
 }
 
-func (c *ChannelSyncedClock) SyncedTime() (*time.Time, *time.Duration, error) {
+func (c *ChannelSyncedClock) Synced() (bool, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	if c.syncedTime == nil {
 		logger.Infof("time has not been synced yet, channelID: %s", c.channelID)
-		return nil, nil, errors.New("time has not been synced yet")
+		return false, errors.New("time has not been synced yet")
 	}
 
 	if timestampAccuracy == nil {
 		logger.Infof("timestamp accuracy provider has not been initialized yet")
-		return nil, nil, errors.New("timestamp accuracy provider has not been initialized yet")
+		return false, errors.New("timestamp accuracy provider has not been initialized yet")
 	}
+
+	_, err := timestampAccuracy(c.channelID)
+	if err != nil {
+		logger.Infof("failed to get timestamp accuracy: %v", err)
+		return false, fmt.Errorf("failed to get timestamp accuracy: %v", err)
+	}
+
+	return true, nil
+}
+
+func (c *ChannelSyncedClock) SyncedTime() (*time.Time, *time.Duration, error) {
+	synced, err := c.Synced()
+	if !synced {
+		return nil, nil, err
+	}
+
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 
 	accuracy, err := timestampAccuracy(c.channelID)
 	if err != nil {
@@ -97,6 +115,7 @@ func (c *ChannelSyncedClock) SyncWithBlock(block *common.Block) error {
 		return nil
 	}
 
+	// TODO: This should not be commented out, but adding this check will cause a lot of tests to fail.
 	// if block.Header.Timestamp == 0 {
 	// 	return errors.New("timestamp should not be 0 for not genesis block")
 	// }

@@ -289,10 +289,17 @@ func (msp *bccspmsp) getValidityOptsForCert(cert *x509.Certificate) VerifyOption
 
 	tempOpts.CurrentTime = cert.NotBefore.Add(time.Second)
 	if msp.clock != nil {
-		currentTime, accuracy, err := msp.clock.SyncedTime()
-		if err == nil {
-			tempOpts.CurrentTime = *currentTime
-			tempOpts.CurrentTimeAccuracy = accuracy
+		synced, _ := msp.clock.Synced()
+		if synced {
+			currentTime, accuracy, err := msp.clock.SyncedTime()
+			if err == nil {
+				tempOpts.CurrentTime = *currentTime
+				tempOpts.CurrentTimeAccuracy = accuracy
+			} else {
+				panic("failed to receive current channel time")
+			}
+		} else {
+			// If the clock is not yet synchronized, then we cannot do anything.
 		}
 	}
 
