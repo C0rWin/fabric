@@ -65,6 +65,7 @@ type View struct {
 	Comm               Comm
 	Verifier           api.Verifier
 	Signer             api.Signer
+	MembershipNotifier api.MembershipNotifier
 	ProposalSequence   uint64
 	DecisionsInView    uint64
 	State              State
@@ -636,6 +637,15 @@ func (v *View) verifyBlacklist(prevCommitSignatures []*protos.Signature, currVer
 		return nil
 	}
 
+	if v.MembershipNotifier != nil && v.MembershipNotifier.MembershipChange() {
+		// If there has been a membership change, black list should remain the same
+		if !equalIntLists(prevProposalMetadata.BlackList, pendingBlacklist) {
+			return errors.Errorf("blacklist changed (%v --> %v) during membership change", prevProposalMetadata.BlackList, pendingBlacklist)
+		}
+		v.Logger.Infof("Skipping verifying prev commits due to membership change")
+		return nil
+	}
+
 	_, f := computeQuorum(v.N)
 
 	if v.blacklistingSupported(f, myLastCommitSignatures) && len(prevCommitSignatures) < len(myLastCommitSignatures) {
@@ -871,14 +881,25 @@ func (v *View) GetMetadata() []byte {
 }
 
 func (v *View) metadataWithUpdatedBlacklist(metadata *protos.ViewMetadata, verificationSeq uint64, prevProp protos.Proposal, prevSigs []*protos.Signature) *protos.ViewMetadata {
-	if verificationSeq == prevProp.VerificationSequence {
+	var membershipChange bool
+	if v.MembershipNotifier != nil {
+		membershipChange = v.MembershipNotifier.MembershipChange()
+	}
+
+	if verificationSeq == prevProp.VerificationSequence && !membershipChange {
 		v.Logger.Debugf("Proposing proposal %d with verification sequence of %d and %d commit signatures",
 			v.ProposalSequence, verificationSeq, len(prevSigs))
 		return v.updateBlacklistMetadata(metadata, prevSigs, prevProp.Metadata)
 	}
 
-	v.Logger.Infof("Skipping updating blacklist due to verification sequence changing from %d to %d",
-		prevProp.VerificationSequence, verificationSeq)
+	if verificationSeq != prevProp.VerificationSequence {
+		v.Logger.Infof("Skipping updating blacklist due to verification sequence changing from %d to %d",
+			prevProp.VerificationSequence, verificationSeq)
+	}
+	if membershipChange {
+		v.Logger.Infof("Skipping updating blacklist due to membership change")
+	}
+
 	return metadata
 }
 
