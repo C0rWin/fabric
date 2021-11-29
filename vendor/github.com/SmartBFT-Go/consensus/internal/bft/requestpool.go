@@ -20,7 +20,6 @@ import (
 
 const (
 	defaultRequestTimeout = 10 * time.Second // for unit tests only
-	defaultSubmitTimeout  = 5 * time.Second  // TODO: update value with a config
 )
 
 var (
@@ -143,12 +142,6 @@ func (rp *Pool) Submit(request []byte) error {
 		return errors.Errorf("pool closed, request rejected: %s", reqInfo)
 	}
 
-	// TODO: Allowing to submit requests smaller than 500K
-	if len(request) > 500*1024 {
-		// TODO: Fix by introducing library level variables to control size of incomming requests from the client
-		return errors.Errorf("cannot accept request larger than 0.5M, got %d bytes long request %s, rejecting", len(request), reqInfo)
-	}
-
 	rp.lock.RLock()
 	_, alreadyExists := rp.existMap[reqInfo]
 	rp.lock.RUnlock()
@@ -158,14 +151,8 @@ func (rp *Pool) Submit(request []byte) error {
 		return ErrReqAlreadyExists
 	}
 
-	ctx, cancel := context.WithTimeout(
-		context.Background(),
-		defaultSubmitTimeout,
-	)
-	defer cancel()
-
 	// do not wait for a semaphore with a lock, as it will prevent draining the pool.
-	if err := rp.semaphore.Acquire(ctx, 1); err != nil {
+	if err := rp.semaphore.Acquire(context.Background(), 1); err != nil {
 		return errors.Wrapf(err, "acquiring semaphore for request: %s", reqInfo)
 	}
 
