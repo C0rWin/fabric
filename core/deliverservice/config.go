@@ -29,6 +29,8 @@ const (
 type DeliverServiceConfig struct {
 	// PeerTLSEnabled enables/disables Peer TLS.
 	PeerTLSEnabled bool
+	// BlockGossipEnabled enables block forwarding via gossip
+	BlockGossipEnabled bool
 	// ReConnectBackoffThreshold sets the delivery service maximal delay between consencutive retries.
 	ReConnectBackoffThreshold time.Duration
 	// ReconnectTotalTimeThreshold sets the total time the delivery service may spend in reconnection attempts
@@ -40,12 +42,17 @@ type DeliverServiceConfig struct {
 	KeepaliveOptions comm.KeepaliveOptions
 	// SecOpts provides the TLS info for connections
 	SecOpts comm.SecureOptions
-	// Is BFT client flag
-	IsBFT bool
 
 	// OrdererEndpointOverrides is a map of orderer addresses which should be
 	// re-mapped to a different orderer endpoint.
 	OrdererEndpointOverrides map[string]*orderers.Endpoint
+
+	// Whether to use a BFT client implementation
+	IsBFT bool
+	// The block censorship timeout. A block censorship suspicion is declared if more than f header receivers
+	// are ahead of the block receiver for a period larger than this timeout.
+	// (f is the number of failures tolerated in the BFT cluster.)
+	BlockCensorshipTimeout time.Duration
 }
 
 type AddressOverride struct {
@@ -61,7 +68,6 @@ func GlobalConfig() *DeliverServiceConfig {
 	return c
 }
 
-// LoadOverridesMap reads and returns endpoints from the peer config
 func LoadOverridesMap() (map[string]*orderers.Endpoint, error) {
 	var overrides []AddressOverride
 	err := viper.UnmarshalKey("peer.deliveryclient.addressOverrides", &overrides)
@@ -98,6 +104,13 @@ func LoadOverridesMap() (map[string]*orderers.Endpoint, error) {
 }
 
 func (c *DeliverServiceConfig) loadDeliverServiceConfig() {
+	enabledKey := "peer.deliveryclient.blockGossipEnabled"
+	enabledConfigOptionMissing := !viper.IsSet(enabledKey)
+	if enabledConfigOptionMissing {
+		logger.Infof("peer.deliveryclient.blockGossipEnabled is not set, defaulting to true.")
+	}
+	c.BlockGossipEnabled = enabledConfigOptionMissing || viper.GetBool(enabledKey)
+
 	c.PeerTLSEnabled = viper.GetBool("peer.tls.enabled")
 
 	c.ReConnectBackoffThreshold = viper.GetDuration("peer.deliveryclient.reConnectBackoffThreshold")
@@ -114,6 +127,9 @@ func (c *DeliverServiceConfig) loadDeliverServiceConfig() {
 	if c.ConnectionTimeout == 0 {
 		c.ConnectionTimeout = DefaultConnectionTimeout
 	}
+
+	c.IsBFT = viper.GetBool("peer.deliveryclient.bft.enabled")
+	c.BlockCensorshipTimeout = viper.GetDuration("peer.deliveryclient.bft.blockCensorshipTimeout")
 
 	c.KeepaliveOptions = comm.DefaultKeepaliveOptions
 	if viper.IsSet("peer.keepalive.deliveryClient.interval") {
@@ -150,8 +166,6 @@ func (c *DeliverServiceConfig) loadDeliverServiceConfig() {
 		}
 		c.SecOpts.Certificate = certPEM
 	}
-
-	c.IsBFT = viper.GetBool("peer.deliveryclient.bft.enabled")
 
 	overridesMap, err := LoadOverridesMap()
 	if err != nil {

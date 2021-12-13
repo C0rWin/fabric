@@ -14,6 +14,8 @@ import (
 	"github.com/hyperledger/fabric/core/deliverservice/fake"
 	"github.com/hyperledger/fabric/internal/pkg/comm"
 	"github.com/hyperledger/fabric/internal/pkg/peer/blocksprovider"
+	"github.com/hyperledger/fabric/internal/pkg/peer/blocksprovider/bft"
+	"github.com/spf13/viper"
 
 	"github.com/stretchr/testify/require"
 )
@@ -24,17 +26,19 @@ type ledgerInfo interface {
 }
 
 func TestStartDeliverForChannel(t *testing.T) {
-	fakeLedgerInfo := &fake.LedgerInfo{}
-	fakeLedgerInfo.LedgerHeightReturns(0, fmt.Errorf("fake-ledger-error"))
+	bftOpt := []bool{false, true}
+	for _, isBFT := range bftOpt {
+		fakeLedgerInfo := &fake.LedgerInfo{}
+		fakeLedgerInfo.LedgerHeightReturns(0, fmt.Errorf("fake-ledger-error"))
 
-	grpcClient, err := comm.NewGRPCClient(comm.ClientConfig{
-		SecOpts: comm.SecureOptions{
-			UseTLS:            true,
-			RequireClientCert: true,
-			// The below certificates were taken from the peer TLS
-			// dir as output by cryptogen.
-			// They are server.crt and server.key respectively.
-			Certificate: []byte(`-----BEGIN CERTIFICATE-----
+		grpcClient, err := comm.NewGRPCClient(comm.ClientConfig{
+			SecOpts: comm.SecureOptions{
+				UseTLS:            true,
+				RequireClientCert: true,
+				// The below certificates were taken from the peer TLS
+				// dir as output by cryptogen.
+				// They are server.crt and server.key respectively.
+				Certificate: []byte(`-----BEGIN CERTIFICATE-----
 MIIChTCCAiygAwIBAgIQOrr7/tDzKhhCba04E6QVWzAKBggqhkjOPQQDAjB2MQsw
 CQYDVQQGEwJVUzETMBEGA1UECBMKQ2FsaWZvcm5pYTEWMBQGA1UEBxMNU2FuIEZy
 YW5jaXNjbzEZMBcGA1UEChMQb3JnMS5leGFtcGxlLmNvbTEfMB0GA1UEAxMWdGxz
@@ -50,179 +54,214 @@ cGVlcjCCFnBlZXIwLm9yZzEuZXhhbXBsZS5jb22CBXBlZXIwMAoGCCqGSM49BAMC
 A0cAMEQCIAiAGoYeKPMd3bqtixZji8q2zGzLmIzq83xdTJoZqm50AiAKleso2EVi
 2TwsekWGpMaCOI6JV1+ZONyti6vBChhUYg==
 -----END CERTIFICATE-----`),
-			Key: []byte(`-----BEGIN PRIVATE KEY-----
+				Key: []byte(`-----BEGIN PRIVATE KEY-----
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgxiyAFyD0Eg1NxjbS
 U2EKDLoTQr3WPK8z7WyeOSzr+GGhRANCAATGCWmkvGIBhJqyt0WytkkPFFQsYFvA
 eUCutqn1KYDMYh54i6p723cXbdDkmvL2UCciHyHdSWS9lmkKVdyNGIJ6
 -----END PRIVATE KEY-----`,
-			),
-		},
-	})
-	require.NoError(t, err)
-
-	t.Run("Green Path With Mutual TLS", func(t *testing.T) {
-		ds := NewDeliverService(&Config{
-			DeliverGRPCClient:    grpcClient,
-			DeliverServiceConfig: &DeliverServiceConfig{},
-		}).(*deliverServiceImpl)
-
-		finalized := make(chan struct{})
-		err := ds.StartDeliverForChannel("channel-id", fakeLedgerInfo, func() {
-			close(finalized)
-		})
-		require.NoError(t, err)
-
-		select {
-		case <-finalized:
-		case <-time.After(time.Second):
-			require.FailNow(t, "finalizer should have executed")
-		}
-
-		bp, ok := ds.blockProviders["channel-id"]
-		require.True(t, ok, "map entry must exist")
-		require.Equal(t, "76f7a03f8dfdb0ef7c4b28b3901fe163c730e906c70e4cdf887054ad5f608bed", fmt.Sprintf("%x", bp.(*blocksprovider.Deliverer).TLSCertHash))
-	})
-
-	t.Run("Green Path without mutual TLS", func(t *testing.T) {
-		grpcClient, err := comm.NewGRPCClient(comm.ClientConfig{
-			SecOpts: comm.SecureOptions{
-				UseTLS: true,
+				),
 			},
 		})
 		require.NoError(t, err)
 
-		ds := NewDeliverService(&Config{
-			DeliverGRPCClient:    grpcClient,
-			DeliverServiceConfig: &DeliverServiceConfig{},
-		}).(*deliverServiceImpl)
+		t.Run("Green Path With Mutual TLS", func(t *testing.T) {
+			ds := NewDeliverService(&Config{
+				DeliverGRPCClient:    grpcClient,
+				DeliverServiceConfig: &DeliverServiceConfig{IsBFT: isBFT},
+			}).(*deliverServiceImpl)
 
-		finalized := make(chan struct{})
-		err = ds.StartDeliverForChannel("channel-id", fakeLedgerInfo, func() {
-			close(finalized)
+			finalized := make(chan struct{})
+			err := ds.StartDeliverForChannel("channel-id", fakeLedgerInfo, func() {
+				close(finalized)
+			})
+			require.NoError(t, err)
+
+			select {
+			case <-finalized:
+			case <-time.After(time.Second):
+				require.FailNow(t, "finalizer should have executed")
+			}
+
+			bp, ok := ds.blockProviders["channel-id"]
+
+			require.True(t, ok, "map entry must exist")
+			require.Equal(t, "76f7a03f8dfdb0ef7c4b28b3901fe163c730e906c70e4cdf887054ad5f608bed", fmt.Sprintf("%x", getTLSCertHash(bp)))
 		})
-		require.NoError(t, err)
 
-		select {
-		case <-finalized:
-		case <-time.After(time.Second):
-			require.FailNow(t, "finalizer should have executed")
-		}
+		t.Run("Green Path without mutual TLS", func(t *testing.T) {
+			grpcClient, err := comm.NewGRPCClient(comm.ClientConfig{
+				SecOpts: comm.SecureOptions{
+					UseTLS: true,
+				},
+			})
+			require.NoError(t, err)
 
-		bp, ok := ds.blockProviders["channel-id"]
-		require.True(t, ok, "map entry must exist")
-		require.Nil(t, bp.(*blocksprovider.Deliverer).TLSCertHash)
-	})
+			ds := NewDeliverService(&Config{
+				DeliverGRPCClient:    grpcClient,
+				DeliverServiceConfig: &DeliverServiceConfig{},
+			}).(*deliverServiceImpl)
 
-	t.Run("Exists", func(t *testing.T) {
-		ds := NewDeliverService(&Config{
-			DeliverGRPCClient:    grpcClient,
-			DeliverServiceConfig: &DeliverServiceConfig{},
-		}).(*deliverServiceImpl)
+			finalized := make(chan struct{})
+			err = ds.StartDeliverForChannel("channel-id", fakeLedgerInfo, func() {
+				close(finalized)
+			})
+			require.NoError(t, err)
 
-		err = ds.StartDeliverForChannel("channel-id", fakeLedgerInfo, func() {})
-		require.NoError(t, err)
+			select {
+			case <-finalized:
+			case <-time.After(time.Second):
+				require.FailNow(t, "finalizer should have executed")
+			}
 
-		err = ds.StartDeliverForChannel("channel-id", fakeLedgerInfo, func() {})
-		require.EqualError(t, err, "Delivery service - block provider already exists for channel-id found, can't start delivery")
-	})
+			bp, ok := ds.blockProviders["channel-id"]
+			require.True(t, ok, "map entry must exist")
+			require.Nil(t, getTLSCertHash(bp))
+		})
 
-	t.Run("Stopping", func(t *testing.T) {
-		ds := NewDeliverService(&Config{
-			DeliverGRPCClient:    grpcClient,
-			DeliverServiceConfig: &DeliverServiceConfig{},
-		}).(*deliverServiceImpl)
+		t.Run("Exists", func(t *testing.T) {
+			ds := NewDeliverService(&Config{
+				DeliverGRPCClient:    grpcClient,
+				DeliverServiceConfig: &DeliverServiceConfig{},
+			}).(*deliverServiceImpl)
 
-		ds.Stop()
+			err = ds.StartDeliverForChannel("channel-id", fakeLedgerInfo, func() {})
+			require.NoError(t, err)
 
-		err = ds.StartDeliverForChannel("channel-id", fakeLedgerInfo, func() {})
-		require.EqualError(t, err, "Delivery service is stopping cannot join a new channel channel-id")
-	})
+			err = ds.StartDeliverForChannel("channel-id", fakeLedgerInfo, func() {})
+			require.EqualError(t, err, "Delivery service - block provider already exists for channel-id found, can't start delivery")
+		})
+
+		t.Run("Stopping", func(t *testing.T) {
+			ds := NewDeliverService(&Config{
+				DeliverGRPCClient:    grpcClient,
+				DeliverServiceConfig: &DeliverServiceConfig{},
+			}).(*deliverServiceImpl)
+
+			ds.Stop()
+
+			err = ds.StartDeliverForChannel("channel-id", fakeLedgerInfo, func() {})
+			require.EqualError(t, err, "Delivery service is stopping cannot join a new channel channel-id")
+		})
+	}
 }
 
 func TestStopDeliverForChannel(t *testing.T) {
-	t.Run("Green path", func(t *testing.T) {
-		ds := NewDeliverService(&Config{}).(*deliverServiceImpl)
-		doneA := make(chan struct{})
-		ds.blockProviders = map[string]blocksprovider.BlocksProvider{
-			"a": &blocksprovider.Deliverer{
-				DoneC: doneA,
-			},
-			"b": &blocksprovider.Deliverer{
-				DoneC: make(chan struct{}),
-			},
-		}
-		err := ds.StopDeliverForChannel("a")
-		require.NoError(t, err)
-		require.Len(t, ds.blockProviders, 1)
-		_, ok := ds.blockProviders["a"]
-		require.False(t, ok)
-		select {
-		case <-doneA:
-		default:
-			require.Fail(t, "should have stopped the blocksprovider")
-		}
-	})
+	bftOpt := []bool{false, true}
+	for _, isBFT := range bftOpt {
+		viper.Set("peer.deliveryclient.bft.enabled", isBFT)
+		t.Run("Green path", func(t *testing.T) {
+			ds := NewDeliverService(&Config{}).(*deliverServiceImpl)
+			doneA := make(chan struct{})
+			ds.blockProviders = map[string]blocksprovider.BlocksProvider{
+				"a": blocksprovider.BlocksProvider(&blocksprovider.Deliverer{
+					DoneC: doneA,
+				}),
+				"b": blocksprovider.BlocksProvider(&blocksprovider.Deliverer{
+					DoneC: make(chan struct{}),
+				}),
+			}
+			err := ds.StopDeliverForChannel("a")
+			require.NoError(t, err)
+			require.Len(t, ds.blockProviders, 1)
+			_, ok := ds.blockProviders["a"]
+			require.False(t, ok)
+			select {
+			case <-doneA:
+			default:
+				require.Fail(t, "should have stopped the blocksprovider")
+			}
+		})
 
-	t.Run("Already stopping", func(t *testing.T) {
-		ds := NewDeliverService(&Config{}).(*deliverServiceImpl)
-		ds.blockProviders = map[string]blocksprovider.BlocksProvider{
-			"a": &blocksprovider.Deliverer{
-				DoneC: make(chan struct{}),
-			},
-			"b": &blocksprovider.Deliverer{
-				DoneC: make(chan struct{}),
-			},
-		}
+		t.Run("Already stopping", func(t *testing.T) {
+			ds := NewDeliverService(&Config{}).(*deliverServiceImpl)
+			ds.blockProviders = map[string]blocksprovider.BlocksProvider{
+				"a": blocksprovider.BlocksProvider(&blocksprovider.Deliverer{
+					DoneC: make(chan struct{}),
+				}),
+				"b": blocksprovider.BlocksProvider(&blocksprovider.Deliverer{
+					DoneC: make(chan struct{}),
+				}),
+			}
 
-		ds.Stop()
-		err := ds.StopDeliverForChannel("a")
-		require.EqualError(t, err, "Delivery service is stopping, cannot stop delivery for channel a")
-	})
+			ds.Stop()
+			err := ds.StopDeliverForChannel("a")
+			require.EqualError(t, err, "Delivery service is stopping, cannot stop delivery for channel a")
+		})
 
-	t.Run("Non-existent", func(t *testing.T) {
-		ds := NewDeliverService(&Config{}).(*deliverServiceImpl)
-		ds.blockProviders = map[string]blocksprovider.BlocksProvider{
-			"a": &blocksprovider.Deliverer{
-				DoneC: make(chan struct{}),
-			},
-			"b": &blocksprovider.Deliverer{
-				DoneC: make(chan struct{}),
-			},
-		}
+		t.Run("Non-existent", func(t *testing.T) {
+			ds := NewDeliverService(&Config{}).(*deliverServiceImpl)
+			ds.blockProviders = map[string]blocksprovider.BlocksProvider{
+				"a": blocksprovider.BlocksProvider(&blocksprovider.Deliverer{
+					DoneC: make(chan struct{}),
+				}),
+				"b": blocksprovider.BlocksProvider(&blocksprovider.Deliverer{
+					DoneC: make(chan struct{}),
+				}),
+			}
 
-		err := ds.StopDeliverForChannel("c")
-		require.EqualError(t, err, "Delivery service - no block provider for c found, can't stop delivery")
-	})
+			err := ds.StopDeliverForChannel("c")
+			require.EqualError(t, err, "Delivery service - no block provider for c found, can't stop delivery")
+		})
+	}
 }
 
 func TestStop(t *testing.T) {
-	ds := NewDeliverService(&Config{}).(*deliverServiceImpl)
-	ds.blockProviders = map[string]blocksprovider.BlocksProvider{
-		"a": &blocksprovider.Deliverer{
-			DoneC: make(chan struct{}),
-		},
-		"b": &blocksprovider.Deliverer{
-			DoneC: make(chan struct{}),
-		},
-	}
-	require.False(t, ds.stopping)
-	for _, bp := range ds.blockProviders {
-		select {
-		case <-bp.(*blocksprovider.Deliverer).DoneC:
-			require.Fail(t, "block providers should not be closed")
-		default:
+	bftOpt := []bool{false, true}
+	for _, isBFT := range bftOpt {
+		viper.Set("peer.deliveryclient.bft.enabled", isBFT)
+		ds := NewDeliverService(&Config{}).(*deliverServiceImpl)
+		ds.blockProviders = map[string]blocksprovider.BlocksProvider{
+			"a": blocksprovider.BlocksProvider(&blocksprovider.Deliverer{
+				DoneC: make(chan struct{}),
+			}),
+			"b": blocksprovider.BlocksProvider(&blocksprovider.Deliverer{
+				DoneC: make(chan struct{}),
+			}),
+		}
+		require.False(t, ds.stopping)
+		for _, bp := range ds.blockProviders {
+			select {
+			case <-getDoneC(bp):
+				require.Fail(t, "block providers should not be closed")
+			default:
+			}
+		}
+
+		ds.Stop()
+		require.True(t, ds.stopping)
+		require.Len(t, ds.blockProviders, 2)
+		for _, bp := range ds.blockProviders {
+			select {
+			case <-getDoneC(bp):
+			default:
+				require.Fail(t, "block providers should te closed")
+			}
 		}
 	}
+}
 
-	ds.Stop()
-	require.True(t, ds.stopping)
-	require.Len(t, ds.blockProviders, 2)
-	for _, bp := range ds.blockProviders {
-		select {
-		case <-bp.(*blocksprovider.Deliverer).DoneC:
-		default:
-			require.Fail(t, "block providers should te closed")
-		}
+func getDoneC(bp blocksprovider.BlocksProvider) chan struct{} {
+	deliverer, ok := bp.(*blocksprovider.Deliverer)
+	if ok {
+		return deliverer.DoneC
 	}
 
+	bftDeliverer, ok := bp.(*bft.Deliverer)
+	if ok {
+		return bftDeliverer.DoneC
+	}
+	panic("unknown implementation of BlocksProvider interface")
+}
+
+func getTLSCertHash(bp blocksprovider.BlocksProvider) []byte {
+	deliverer, ok := bp.(*blocksprovider.Deliverer)
+	if ok {
+		return deliverer.TLSCertHash
+	}
+
+	bftDeliverer, ok := bp.(*bft.Deliverer)
+	if ok {
+		return bftDeliverer.TLSCertHash
+	}
+	panic("unknown implementation of BlocksProvider interface")
 }

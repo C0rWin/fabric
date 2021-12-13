@@ -55,6 +55,11 @@ func (cs *ConnectionSource) RandomEndpoint() (*Endpoint, error) {
 	return cs.allEndpoints[rand.Intn(len(cs.allEndpoints))], nil
 }
 
+func (cs *ConnectionSource) AllEndpoints() ([]*Endpoint, error) {
+	cs.mutex.RLock()
+	defer cs.mutex.RUnlock()
+	return cs.allEndpoints, nil
+}
 func (cs *ConnectionSource) Update(globalAddrs []string, orgs map[string]OrdererOrg) {
 	cs.mutex.Lock()
 	defer cs.mutex.Unlock()

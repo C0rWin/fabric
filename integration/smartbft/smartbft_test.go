@@ -89,6 +89,7 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 	Describe("smartbft network", func() {
 		It("smartbft multiple nodes stop start all nodes", func() {
 			network = nwo.New(nwo.MultiNodeSmartBFT(), testDir, client, StartPort(), components)
+			network.ClientAuthRequired = true
 			network.GenerateConfigTree()
 			network.Bootstrap()
 
@@ -179,6 +180,7 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 
 		It("smartbft assisted synchronization no rotation", func() {
 			network = nwo.New(nwo.MultiNodeSmartBFT(), testDir, client, StartPort(), components)
+			network.ClientAuthRequired = true
 			network.GenerateConfigTree()
 			network.Bootstrap()
 
@@ -297,6 +299,7 @@ var _ = Describe("EndToEnd Smart BFT configuration test", func() {
 
 		It("smartbft autonomous synchronization", func() {
 			network = nwo.New(nwo.MultiNodeSmartBFT(), testDir, client, StartPort(), components)
+			network.ClientAuthRequired = true
 			network.GenerateConfigTree()
 			network.Bootstrap()
 			network.EventuallyTimeout = time.Minute * 2
@@ -1121,6 +1124,7 @@ func invokeQuery(network *nwo.Network, peer *nwo.Peer, orderer *nwo.Orderer, cha
 			network.PeerAddress(network.Peer("Org2", "peer0"), nwo.ListenPort),
 		},
 		WaitForEvent: true,
+		ClientAuth:   network.ClientAuthRequired,
 	})
 	Expect(err).NotTo(HaveOccurred())
 	Eventually(sess, network.EventuallyTimeout).Should(gexec.Exit(0))
@@ -1169,6 +1173,7 @@ func waitForBlockReception(o *nwo.Orderer, submitter *nwo.Peer, network *nwo.Net
 		Block:      "newest",
 		OutputFile: "/dev/null",
 		Orderer:    network.OrdererAddress(o, nwo.ListenPort),
+		ClientAuth: network.ClientAuthRequired,
 	}
 	Eventually(func() string {
 		sess, err := network.OrdererAdminSession(o, submitter, c)

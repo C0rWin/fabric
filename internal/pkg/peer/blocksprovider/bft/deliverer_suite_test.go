@@ -1,10 +1,4 @@
-/*
-Copyright IBM Corp. All Rights Reserved.
-
-SPDX-License-Identifier: Apache-2.0
-*/
-
-package blocksprovider_test
+package bft
 
 import (
 	"testing"
@@ -26,7 +20,7 @@ type abDeliverClient interface {
 	orderer.AtomicBroadcast_DeliverClient
 }
 
-func TestBlocksprovider(t *testing.T) {
+func TestBFTBlocksprovider(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Blocksprovider Suite")
+	RunSpecs(t, "BFT Blocksprovider Suite")
 }
