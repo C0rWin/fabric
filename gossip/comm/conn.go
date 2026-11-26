@@ -267,14 +267,15 @@ func (cs *connectionStore) evictConnLocked(conn *connection) bool {
 // live connections alone exceed max: charges already delivered by removed
 // connections outlive them until consumed, so live connections overcommit
 // while the overage is retired debt instead of cascading evictions to
-// bystanders. When live debt does exceed max, the largest live offender is
-// dropped — which can be a slow but honest peer.
-func (cs *connectionStore) evictLargestConnection(max int64) {
+// bystanders. Only the connection whose admission crossed the budget is a
+// candidate, and only when it is itself the largest live holder: a flood
+// costs its own connection, never a bystander's.
+func (cs *connectionStore) evictLargestConnection(max int64, causer *connection) {
 	cs.Lock()
 	defer cs.Unlock()
 
 	var victim *connection
-	var liveTotal, deadTotal, mostLive int64
+	var liveTotal, mostLive int64
 	for _, conn := range cs.pki2Conn {
 		n := conn.recvBytesInFlight.Load()
 		liveTotal += n
@@ -290,22 +291,23 @@ func (cs *connectionStore) evictLargestConnection(max int64) {
 			conn.retired = false
 		}
 		conn.acctMu.Unlock()
-		if n != 0 {
-			deadTotal += n
-		}
 	}
 
 	if max <= 0 || victim == nil || liveTotal <= max {
-		if deadTotal > 0 {
-			cs.metrics.SharedRecvOver.Add(1)
-			cs.logger.Debugf("Shared receive byte budget of %d bytes is exceeded by %d bytes delivered by removed connections; overcommitting until subscribers drain", max, deadTotal)
-		}
 		return
 	}
-	cs.logger.Warningf("Shared receive byte budget exceeded, dropping connection to %s holding %d unconsumed bytes", victim.pkiID, mostLive)
+	var causerCharge int64
+	if causer != nil {
+		causerCharge = causer.recvBytesInFlight.Load()
+	}
+	if causerCharge < mostLive {
+		cs.logger.Debugf("Shared receive byte budget of %d bytes exceeded by a connection holding %d bytes; largest live holder keeps %d, no eviction", max, causerCharge, mostLive)
+		return
+	}
+	cs.logger.Warningf("Shared receive byte budget exceeded, dropping connection to %s holding %d unconsumed bytes", causer.pkiID, mostLive)
 	cs.metrics.SharedRecvEvicts.Add(1)
-	victim.close()
-	cs.evictConnLocked(victim)
+	causer.close()
+	cs.evictConnLocked(causer)
 }
 
 func newConnection(cl proto.GossipClient, c *grpc.ClientConn, s stream, metrics *metrics.CommMetrics, config ConnConfig) *connection {
@@ -345,41 +347,39 @@ type ConnConfig struct {
 
 // sharedRecvBudget bounds received-but-retained bytes across connections,
 // charged at admission so queued-not-yet-handed-off messages count too.
-// While the aggregate live debt exceeds max, the live connection holding the
-// most in-flight bytes is evicted; retired (removed) connections' charges
-// never trigger an eviction.
+// The caller is told when aggregate live debt exceeds max; retired
+// (removed) connections' charges only ever lead to overcommit.
 type sharedRecvBudget struct {
 	inFlight atomic.Int64
 	// deadTotal is the part of inFlight held by removed connections.
 	deadTotal atomic.Int64
 	max       int64
-	// evict drops the connection with the most in-flight bytes.
-	evict func()
+	// overcommit logs and measures a retired-debt episode once.
+	overcommit func()
 	// overCharged marks the upward crossing so overcommit is logged and
 	// measured once per episode, not per message.
 	overCharged atomic.Bool
 }
 
-func (b *sharedRecvBudget) admit(size int64) {
+// admit charges the budget and reports whether aggregate live debt exceeds
+// max; the caller decides the eviction target.
+func (b *sharedRecvBudget) admit(size int64) bool {
 	if b == nil || b.max <= 0 {
-		return
+		return false
 	}
 	inFlight := b.inFlight.Add(size)
 	if inFlight <= b.max {
 		b.overCharged.Store(false)
-		return
+		return false
 	}
 	if inFlight-b.deadTotal.Load() > b.max {
-		// Aggregate live debt alone exceeds the budget: evict the offender.
-		if b.evict != nil {
-			b.evict()
-		}
-		return
+		return true
 	}
 	// Overage is retired debt: overcommit, logged once per episode.
-	if b.overCharged.CompareAndSwap(false, true) && b.evict != nil {
-		b.evict()
+	if b.overCharged.CompareAndSwap(false, true) && b.overcommit != nil {
+		b.overcommit()
 	}
+	return false
 }
 
 func (b *sharedRecvBudget) release(size int64) {
@@ -652,7 +652,9 @@ func (conn *connection) admitReceivedBytes(msg *protoext.SignedGossipMessage) bo
 		conn.acctMu.Unlock()
 		return false
 	}
-	conn.sharedRecvBudget.admit(size)
+	if conn.sharedRecvBudget.admit(size) && conn.store != nil {
+		conn.store.evictLargestConnection(conn.sharedRecvBudget.max, conn)
+	}
 	return true
 }
 

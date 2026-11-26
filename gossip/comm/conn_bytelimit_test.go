@@ -549,8 +549,8 @@ func TestReceiveAccountingDrainsOnClose(t *testing.T) {
 
 // sharedBudgetFixture wires a connection store to a shared receive budget
 // the way NewCommInstance does: the store configuration references the
-// budget, and the budget's eviction callback drops the largest live
-// connection through the store.
+// budget, and the connection's admission drops the largest live holder
+// through the store when live debt crosses it.
 type sharedBudgetFixture struct {
 	cs     *connectionStore
 	shared *sharedRecvBudget
@@ -559,7 +559,7 @@ type sharedBudgetFixture struct {
 func newSharedBudgetFixture(max int64, m *metrics.CommMetrics) *sharedBudgetFixture {
 	shared := &sharedRecvBudget{max: max}
 	cs := newConnStore(nil, flogging.MustGetLogger("test"), ConnConfig{sharedRecvBudget: shared}, m)
-	shared.evict = func() { cs.evictLargestConnection(shared.max) }
+	shared.overcommit = func() { m.SharedRecvOver.Add(1) }
 	return &sharedBudgetFixture{cs: cs, shared: shared}
 }
 
@@ -876,7 +876,6 @@ func TestPostTeardownReceiveDoesNotCharge(t *testing.T) {
 	msgSize := int64(goproto.Size(makeDataEnvelope(1024)))
 	shared := &sharedRecvBudget{max: msgSize + msgSize/2}
 	cs := newConnStore(nil, flogging.MustGetLogger("test"), ConnConfig{sharedRecvBudget: shared}, disabledMetrics)
-	shared.evict = func() { cs.evictLargestConnection(shared.max) }
 
 	healthy := newConnection(nil, nil, &gmocks.MockStream{}, disabledMetrics, ConnConfig{sharedRecvBudget: shared})
 	healthy.pkiID = []byte("healthy")
@@ -1080,7 +1079,7 @@ func TestNewCommInstanceWiresReceiveBudgets(t *testing.T) {
 	require.Equal(t, 1000, ci.connStore.config.MaxRecvBytesInFlight)
 	require.NotNil(t, ci.connStore.config.sharedRecvBudget)
 	require.Equal(t, int64(4000), ci.connStore.config.sharedRecvBudget.max)
-	require.NotNil(t, ci.connStore.config.sharedRecvBudget.evict)
+	require.NotNil(t, ci.connStore.config.sharedRecvBudget.overcommit)
 }
 
 type fakeCounter struct{ n atomic.Int64 }
@@ -1201,7 +1200,6 @@ func TestUnmatchedMessageDoesNotEvictBystander(t *testing.T) {
 	// nothing may be evicted.
 	shared := &sharedRecvBudget{max: 100 * msgSize}
 	cs := newConnStore(nil, flogging.MustGetLogger("test"), ConnConfig{}, disabledMetrics)
-	shared.evict = func() { cs.evictLargestConnection(shared.max) }
 
 	bystander := newConnection(nil, nil, &gmocks.MockStream{}, disabledMetrics, ConnConfig{sharedRecvBudget: shared})
 	bystander.pkiID = []byte("bystander")
@@ -1256,6 +1254,58 @@ func TestUnmatchedMessageDoesNotEvictBystander(t *testing.T) {
 	bystander.close()
 }
 
+// TestUnmatchedCrossingDoesNotEvictBystander: an unmatched message admitted
+// past the shared budget must never drop a bystander; only a connection that
+// accumulates beyond the budget loses its own connection.
+func TestUnmatchedCrossingDoesNotEvictBystander(t *testing.T) {
+	unmatched := byteLimitMessage(t)
+	size := int64(goproto.Size(unmatched.Envelope))
+
+	c := &commImpl{
+		msgPublisher: NewChannelDemultiplexer(),
+		pubSub:       util.NewPubSub(),
+		logger:       flogging.MustGetLogger("test"),
+	}
+	c.msgPublisher.AddChannel(func(any) bool { return false }) // matches nothing
+	defer c.msgPublisher.Close()
+
+	shared := &sharedRecvBudget{max: 10 * size}
+	cs := newConnStore(nil, flogging.MustGetLogger("test"), ConnConfig{sharedRecvBudget: shared}, disabledMetrics)
+
+	bystander := newConnection(nil, nil, &gmocks.MockStream{}, disabledMetrics, ConnConfig{sharedRecvBudget: shared})
+	bystander.pkiID = []byte("bystander")
+	bystander.logger = flogging.MustGetLogger("test")
+	bystander.handler = c.publishingHandler(bystander, &protoext.ConnectionInfo{ID: bystander.pkiID})
+	cs.pki2Conn["bystander"] = bystander
+	bystander.store = cs
+
+	attacker := newConnection(nil, nil, &gmocks.MockStream{}, disabledMetrics, ConnConfig{sharedRecvBudget: shared})
+	attacker.pkiID = []byte("attacker")
+	attacker.logger = flogging.MustGetLogger("test")
+	attacker.handler = c.publishingHandler(attacker, &protoext.ConnectionInfo{ID: attacker.pkiID})
+	cs.pki2Conn["attacker"] = attacker
+	attacker.store = cs
+
+	// The bystander fills the shared budget to exactly max.
+	for range 10 {
+		require.True(t, bystander.admitReceivedBytes(byteLimitMessage(t)))
+	}
+
+	// The attacker admits an unmatched message: the shared counter crosses
+	// max but the charge is released at handoff, so no connection may drop.
+	require.True(t, attacker.admitReceivedBytes(unmatched))
+	attacker.handler(unmatched)
+	require.Equal(t, 10*size, shared.inFlight.Load(), "the unmatched message was not released")
+
+	select {
+	case <-bystander.stopChan:
+		t.Fatal("an unmatched message evicted a bystander connection")
+	default:
+	}
+	bystander.close()
+	attacker.close()
+}
+
 // TestPerConnTripDoesNotEvictOther proves that a message tripping only the
 // per-connection budget drops that connection without touching the shared
 // budget or any other connection.
@@ -1263,7 +1313,6 @@ func TestPerConnTripDoesNotEvictOther(t *testing.T) {
 	msgSize := int64(goproto.Size(makeDataEnvelope(1024)))
 	shared := &sharedRecvBudget{max: 100 * msgSize}
 	cs := newConnStore(nil, flogging.MustGetLogger("test"), ConnConfig{}, disabledMetrics)
-	shared.evict = func() { cs.evictLargestConnection(shared.max) }
 
 	healthy := newConnection(nil, nil, &gmocks.MockStream{}, disabledMetrics, ConnConfig{sharedRecvBudget: shared})
 	healthy.pkiID = []byte("healthy")
@@ -1318,13 +1367,13 @@ func TestPerConnTripDoesNotEvictOther(t *testing.T) {
 }
 
 // TestSharedBudgetLogsOvercommitOncePerEpisode pins the throttle: while
-// retired debt keeps the budget exceeded, the eviction scan runs once per
-// episode, not per admission.
+// retired debt keeps the budget exceeded, the overcommit report runs once
+// per episode, not per admission.
 func TestSharedBudgetLogsOvercommitOncePerEpisode(t *testing.T) {
 	msgSize := int64(goproto.Size(makeDataEnvelope(1024)))
 	var evictCalls atomic.Int32
 	fx := newSharedBudgetFixture(4*msgSize, disabledMetrics)
-	fx.shared.evict = func() { evictCalls.Add(1) }
+	fx.shared.overcommit = func() { evictCalls.Add(1) }
 
 	// Retired debt at the budget: 4 messages retired with delivered charges.
 	dead := newConnection(nil, nil, &gmocks.MockStream{}, disabledMetrics, ConnConfig{sharedRecvBudget: fx.shared})
@@ -1337,21 +1386,21 @@ func TestSharedBudgetLogsOvercommitOncePerEpisode(t *testing.T) {
 		dead.admitReceivedBytes(msg)
 	}
 	fx.cs.evictConn(dead)
-	require.EqualValues(t, 0, evictCalls.Load(), "no scan expected before the budget is exceeded")
+	require.EqualValues(t, 0, evictCalls.Load(), "no overcommit expected before the budget is exceeded")
 
 	// Sustained live admissions while the budget is exceeded by retired debt:
 	// one scan per episode, not per admission.
 	for range 4 {
 		fx.shared.admit(msgSize)
 	}
-	require.EqualValues(t, 1, evictCalls.Load(), "overcommit scan must run once per episode, not per admission")
+	require.EqualValues(t, 1, evictCalls.Load(), "overcommit must report once per episode, not per admission")
 
 	// A new episode after draining below the budget scans again.
 	for range 4 {
 		fx.shared.release(msgSize)
 	}
 	fx.shared.admit(msgSize)
-	require.EqualValues(t, 2, evictCalls.Load(), "a new overcommit episode must scan once more")
+	require.EqualValues(t, 2, evictCalls.Load(), "a new overcommit episode must report once more")
 }
 
 // TestRetiredDebtResidue pins the release ordering: the final dispose of a
@@ -1537,6 +1586,71 @@ func TestTotalBudgetCoversQueuedMessages(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return conn.recvBytesInFlight.Load() == 0 && fx.shared.inFlight.Load() == 0
 	}, 30*time.Second, time.Millisecond, "queued charges were not released on teardown")
+}
+
+func byteLimitMessage(t *testing.T) *protoext.SignedGossipMessage {
+	t.Helper()
+	msg, err := protoext.EnvelopeToGossipMessage(makeDataEnvelope(1024))
+	require.NoError(t, err)
+	return msg
+}
+
+func byteLimitConn(t *testing.T, b *sharedRecvBudget) (*connectionStore, *connection) {
+	t.Helper()
+	cs := newConnStore(nil, flogging.MustGetLogger("test"), ConnConfig{sharedRecvBudget: b}, disabledMetrics)
+	conn := newConnection(nil, nil, nil, disabledMetrics, ConnConfig{sharedRecvBudget: b})
+	conn.pkiID = []byte("peer")
+	conn.logger = flogging.MustGetLogger("test")
+	conn.store = cs
+	cs.pki2Conn["peer"] = conn
+	return cs, conn
+}
+
+// TestRetiredDebtNegativeDrift covers a message admitted after eviction: it
+// is not part of the retirement snapshot, so its release must not debit the
+// retired debt either.
+func TestRetiredDebtNegativeDrift(t *testing.T) {
+	first := byteLimitMessage(t)
+	late := byteLimitMessage(t)
+	size := int64(goproto.Size(first.Envelope))
+	b := &sharedRecvBudget{max: 100 * size}
+	cs, conn := byteLimitConn(t, b)
+
+	require.True(t, conn.admitReceivedBytes(first))
+	require.True(t, cs.evictConn(conn))
+	require.Equal(t, size, b.deadTotal.Load())
+
+	require.True(t, conn.admitReceivedBytes(late))
+	conn.releaseReceivedBytes(first)
+	conn.releaseReceivedBytes(late)
+
+	require.Zero(t, conn.recvBytesInFlight.Load())
+	require.Zero(t, b.inFlight.Load())
+	require.Zero(t, b.deadTotal.Load(), "retired debt under-counted")
+}
+
+// TestRetiredDebtLeakOnRace hammers concurrent retirement and release: every
+// interleaving must account exactly, with no phantom debt and no under-count.
+func TestRetiredDebtLeakOnRace(t *testing.T) {
+	for range 50 {
+		msg := byteLimitMessage(t)
+		size := int64(goproto.Size(msg.Envelope))
+		b := &sharedRecvBudget{max: 100 * size}
+		cs, conn := byteLimitConn(t, b)
+		require.True(t, conn.admitReceivedBytes(msg))
+
+		releaseDone := make(chan struct{})
+		go func() {
+			conn.releaseReceivedBytes(msg)
+			close(releaseDone)
+		}()
+		cs.evictConn(conn)
+		<-releaseDone
+
+		require.Zero(t, conn.recvBytesInFlight.Load())
+		require.Zero(t, b.inFlight.Load())
+		require.Zero(t, b.deadTotal.Load(), "retired debt leaked")
+	}
 }
 
 type trackableMessage struct {

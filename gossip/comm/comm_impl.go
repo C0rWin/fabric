@@ -94,7 +94,10 @@ func NewCommInstance(s *grpc.Server, certs *common.TLSCertificates, idStore iden
 	}
 
 	commInst.connStore = newConnStore(commInst, commInst.logger, connConfig, commMetrics)
-	sharedBudget.evict = func() { commInst.connStore.evictLargestConnection(sharedBudget.max) }
+	sharedBudget.overcommit = func() {
+		commMetrics.SharedRecvOver.Add(1)
+		commInst.logger.Debugf("Shared receive byte budget of %d bytes is exceeded by %d bytes delivered by removed connections; overcommitting until subscribers drain", sharedBudget.max, sharedBudget.deadTotal.Load())
+	}
 
 	proto.RegisterGossipServer(s, commInst)
 
